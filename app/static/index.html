@@ -36,8 +36,13 @@ h1{font-family:Georgia,"Times New Roman",serif;font-size:28px;line-height:1.2;ma
 .notice{border:1px solid var(--warn-border);background:var(--warn-bg);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px}
 .provider{border:1px solid var(--border);background:var(--surface);border-radius:var(--radius);padding:12px 16px;margin-bottom:24px;box-shadow:var(--shadow)}
 /* Layout: sidebar (setup) + main (chat). Gap between groups >> gap within. */
-.layout{display:grid;grid-template-columns:360px 1fr;gap:32px;align-items:start}
-@media (max-width:900px){.layout{grid-template-columns:1fr}}
+.layout{display:grid;grid-template-columns:360px minmax(0,1fr) 340px;gap:32px;align-items:start}
+@media (max-width:1200px){.layout{grid-template-columns:1fr}}
+.planner-item{border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:10px;background:var(--surface-2)}
+.planner-item b{font-size:14px}
+.planner-meta{color:var(--muted);font-size:13px;line-height:1.5}
+.src-stated{background:#e6f2f0;color:var(--accent-text);border-color:#bfe0dc}
+.src-inferred{background:#fff8e1;border-color:var(--warn-border)}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;box-shadow:var(--shadow);margin-bottom:24px}
 .card h2{font-family:Georgia,serif;font-size:19px;line-height:1.3;margin:0 0 4px}
 .card .hint{color:var(--muted);font-size:13px;margin:0 0 16px}
@@ -164,6 +169,11 @@ pre{white-space:pre-wrap;word-break:break-word;background:#1c1a17;color:#f2efe9;
         </div>
         <p class="meta" id="commentHint">Hãy tạo bài viết ở Bước 2 trước, rồi mới comment được. Mẹo: Ctrl/Cmd + Enter để gửi.</p>
       </div>
+    </section>
+    <section class="card" id="plannerCol" aria-labelledby="plannerTitle">
+      <h2 id="plannerTitle">Conversation Planner</h2>
+      <p class="hint">Định hướng của lượt vừa gửi: model hiểu gì, định trả lời theo hướng nào, có hỏi thêm không, và mỗi intent đến từ đâu (intent source). Đọc cột này thay vì mở JSON trace khi chỉ cần biết "nó định làm gì tiếp theo".</p>
+      <div id="planner"><p class="meta">Chưa có lượt nào — gửi comment đầu tiên để xem planner.</p></div>
     </section>
   </div>
 
@@ -318,6 +328,39 @@ async function createPost() {
   document.getElementById('chat').innerHTML = '<div class="empty" id="chatEmpty">Bài viết đã sẵn sàng. Gửi comment đầu tiên bên dưới.</div>';
   document.getElementById('comment').focus();
 }
+const GOAL_LABELS = {answer_question:'Trả lời câu hỏi', share_experience:'Chia sẻ trải nghiệm', clarify:'Hỏi làm rõ', explore_need:'Khám phá nhu cầu', empathize:'Đồng cảm', stop:'Dừng', handoff:'Chuyển giao / cần review'};
+function sourceLabel(s) {
+  return s === 'stated' ? 'Khách nói rõ' : s === 'inferred_context' ? 'Suy luận từ context' : (s || '—');
+}
+function sourceCls(s) {
+  return s === 'stated' ? 'src-stated' : s === 'inferred_context' ? 'src-inferred' : '';
+}
+// Cột Conversation Planner: đọc từ response.planner của lượt vừa gửi,
+// không phải từ JSON trace. Hiển thị định hướng tiếp theo + intent source.
+function renderPlanner(d) {
+  const box = document.getElementById('planner');
+  if (!box) return;
+  const p = d.planner || {};
+  const rd = p.response_direction || {};
+  const goal = GOAL_LABELS[p.goal] || (p.goal || '—');
+  let direction = 'Không hỏi thêm.';
+  if (rd.ask_followup) {
+    direction = 'Hỏi thêm 1 câu' + (rd.followup_purpose ? ': ' + rd.followup_purpose : '') + (rd.followup_key ? ' (key: ' + rd.followup_key + ')' : '') + '.';
+  } else if (rd.answer_first) {
+    direction = 'Trả lời câu hỏi trước, không hỏi thêm.';
+  }
+  const intents = (p.intents || []).map(it => {
+    const conf = (typeof it.confidence === 'number') ? ' · độ tin cậy ' + Math.round(it.confidence * 100) + '%' : '';
+    return `<div class="planner-item"><b>${esc(it.type || '—')}</b> <span class="chip ${sourceCls(it.source)}">${esc(sourceLabel(it.source))}</span><div class="planner-meta">Chủ thể: ${esc(it.subject || '—')} · Liên quan: ${esc(it.relation || '—')}${conf}<br>${esc(it.normalized || '')}<br><span class="meta">Bằng chứng: ${esc(it.evidence || '—')}</span></div></div>`;
+  }).join('') || '<p class="meta">Không có intent nào.</p>';
+  const answered = (p.answered_question_keys || []).length ? p.answered_question_keys.map(esc).join(', ') : '—';
+  const pending = (p.pending_questions || []).length ? p.pending_questions.map(q => esc(typeof q === 'string' ? q : (q.key || JSON.stringify(q)))).join(', ') : '—';
+  const needs = (p.data_needs || []).length ? p.data_needs.map(esc).join(', ') : '—';
+  const resolved = (p.resolved_reference && p.resolved_reference.resolved_to) ? esc(p.resolved_reference.resolved_to) : '—';
+  const reviewNote = d.status === 'review' ? `<div class="planner-item"><b>Lượt này chưa gửi (review/handoff).</b><div class="planner-meta">${esc((d.validator_errors || []).join('; ') || 'Model chọn hướng handoff hoặc validator chưa đạt — xem Trace kỹ thuật để biết lý do.')}</div></div>` : '';
+  const replayNote = (d.trace && d.trace.idempotent_replay === true) ? '<p class="meta">Đây là planner của reply cũ (trùng Idempotency-Key).</p>' : '';
+  box.innerHTML = `<p><b>Mục tiêu:</b> ${esc(goal)}</p><p><b>Định hướng tiếp theo:</b> ${esc(direction)}</p><p><b>Tham chiếu đã giải quyết:</b> ${resolved}</p><p><b>Dữ kiện cần:</b> ${needs}</p><p><b>Đã trả lời câu hỏi:</b> ${answered}</p><p><b>Câu hỏi đang chờ:</b> ${pending}</p><h3 style="font-size:15px;margin:16px 0 8px">Intents (kèm intent source)</h3>${intents}${reviewNote}${replayNote}`;
+}
 async function sendTurn() {
   if (isSending) return;
   const text = document.getElementById('comment').value.trim();
@@ -365,6 +408,7 @@ async function sendTurn() {
   const isReplay = d.trace && d.trace.idempotent_replay === true;
   const statusLabel = isReplay ? 'Reply cũ (trùng Idempotency-Key)' : d.status==='sent' ? 'Đã gửi qua FakeSender' : d.status==='review' ? 'Cần review / handoff (chưa gửi)' : 'Lỗi';
   const statusCls = d.status==='sent' ? 'sent' : d.status==='review' ? 'review' : 'error';
+  renderPlanner(d);
   const replyText = d.reply_text || (d.validator_errors && d.validator_errors.length ? 'Lỗi: ' + d.validator_errors.join('; ') : (d.detail ? 'Lỗi: ' + d.detail : '(không có reply)'));
   const replayNote = isReplay ? `<p class="meta">⚠️ Đây là reply cũ được trả lại vì trùng Idempotency-Key, KHÔNG phải câu trả lời cho comment mới — comment mới cũng chưa được lưu vào lịch sử. Xóa key và gửi lại để nhận câu mới.</p>` : '';
   chat.innerHTML += `<div class="msg ${cls}"><div class="who">Persona · <span class="status ${statusCls}">${statusLabel}</span></div>${esc(replyText)}${replayNote}

@@ -138,6 +138,45 @@ Sau fix, lượt màu xe phải đi đường propose (tạo vehicle_color rồi
 vì review; cần Phước chạy lại live để xác nhận, vì prompt Luna vẫn có thể chọn
 đường khác.
 
+## Phụ lục 2: lượt màu xe bị review — Luna từ chối propose vì prompt mâu thuẫn (đã sửa, lên main)
+
+Triệu chứng 30/10 (sau khi đã gộp lên main): hỏi màu xe, Luna trả review/handoff
+"Mình chưa có màu xe được xác nhận trong thông tin hiện có", không propose, không
+ghi nhớ cho lượt sau.
+
+Kiểm tra engine trước khi đổ lỗi cho model: `propose_persona_fact` với
+`vehicle_color` hoàn toàn đi được — key thuộc nhóm được tạo, chưa có active/pending
+thì tạo pending, pipeline active khi sent, lượt sau đọc canon. Validator cũng chấp
+nhận claim từ fact pending trong cùng lượt. Nghĩa là đường "tự update DB nếu không
+conflict, ghi nhớ cho lần sau" đã có sẵn, chỉ là Luna không đi vào nó.
+
+Nguyên nhân là prompt tự mâu thuẫn: rule cũ cấm tuyệt đối "không bịa ... màu xe",
+trong khi propose chính là luồng tạo chi tiết hư cấu. Model thận trọng chọn phía
+an toàn là từ chối, rồi lượt đó rơi vào review (validator hoặc goal handoff).
+
+Fix:
+- SYSTEM_PROMPT viết lại rule 2/3: phân biệt dữ kiện thật cần xác minh (giá, thông
+  số, đại lý — tuyệt đối không bịa) với chi tiết hư cấu của persona (màu xe, sở
+  thích, chuyến đi — CHỌN một giá trị hợp lý và tạo qua propose tool, đó không
+  phải bịa dữ kiện thật; engine kiểm tra conflict, chỉ lưu khi gửi thành công).
+- Màu xe chưa có: mặc định trắng (nếu không có gợi ý khác), propose rồi mới trả
+  lời kèm claim ref_id. Propose trả CONFLICT thì dùng màu trong canon, không ghi đè.
+- Tool description của `propose_persona_fact` ghi rõ đây là luồng tạo bình thường.
+- Test mới `tests/test_color_propose_flow.py`: propose trắng -> sent -> active trong
+  DB -> lượt sau trả cùng màu từ canon không propose lại; propose đen khi đã có
+  trắng -> CONFLICT, giá trị cũ giữ nguyên. Test prompt khóa câu chữ mới.
+- Sandbox UI thêm cột Conversation Planner (`#plannerCol`, render từ
+  `response.planner`): mục tiêu, định hướng tiếp theo (trả lời trước / hỏi thêm 1
+  câu + mục đích + key), intents kèm intent source (Khách nói rõ / Suy luận từ
+  context), dữ kiện cần, tham chiếu đã giải quyết, đã trả lời câu hỏi nào, câu hỏi
+  đang chờ, và ghi chú khi lượt rơi vào review. Test guard trong
+  `tests/test_sandbox_planner_ui.py`. JS đã qua `node --check`, UI đã serve thử
+  và thấy đủ 3 điểm đánh dấu planner.
+
+Chưa kiểm chứng live: prompt mới có làm Luna thực sự propose hay không vẫn cần
+Phước chạy lại live (VM không có key). Nếu Luna vẫn từ chối propose sau fix này
+thì cần trace lượt đó để xem nó gọi tool nào thay vì propose.
+
 ## Chưa kiểm chứng (nói rõ, không nhận vơ)
 
 - Live Luna: VM không có OpenRouter key. `propose_story` bắt buộc tags/categories có

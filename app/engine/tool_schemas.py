@@ -116,9 +116,14 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "propose_persona_fact",
-            "description": "Đề xuất tạo persona fact mới. Engine kiểm tra key có được "
-            "phép tạo, không khóa, không mâu thuẫn trước khi lưu. Có thể "
-            "kèm tags (chỉ tag trong taxonomy mới được chấp nhận).",
+            "description": "Đề xuất tạo persona fact mới. Đây là luồng tạo chi tiết hư cấu "
+            "bình thường của persona (VD: màu xe chưa có trong canon), KHÔNG "
+            "phải bịa dữ kiện thật: engine kiểm tra key có được phép tạo, "
+            "không khóa, không mâu thuẫn với canon cũ trước khi lưu pending; "
+            "chỉ active khi reply gửi thành công. Nếu đã có giá trị khác "
+            "trong canon thì trả CONFLICT và KHÔNG ghi đè — khi đó dùng giá "
+            "trị trong canon. Có thể kèm tags (chỉ tag trong taxonomy mới "
+            "được chấp nhận).",
             "parameters": {
                 "type": "object",
                 "properties": {
