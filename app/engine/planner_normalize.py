@@ -136,3 +136,62 @@ def normalize_planner_args(args: dict) -> dict:
         },
         "resolved_reference": args.get("resolved_reference") or {},
     }
+
+
+def _strip_diacritics(text: str) -> str:
+    import unicodedata
+    return "".join(
+        c for c in unicodedata.normalize("NFD", text or "")
+        if unicodedata.category(c) != "Mn").lower()
+
+
+def _model_token(model_value: str) -> str:
+    """Token phân biệt của tên xe: từ cuối, VD 'Hyundai Tucson' -> 'tucson'."""
+    parts = _strip_diacritics(model_value).replace("-", " ").split()
+    return parts[-1] if parts else ""
+
+
+def guard_resolved_reference(planner: dict, persona_vehicle: str | None,
+                             user_text: str,
+                             last_persona_text: str | None) -> dict:
+    """Engine guard cho tham chiếu mơ hồ (lỗi live 30/10: Minh Anh lái
+    Tucson, kể chuyện Tucson, khách nói 'Tôi cũng tính lấy 1 chiếc' nhưng
+    planner resolve thành Creta theo xe trong bài viết).
+
+    Chỉ downgrade khi ĐỦ cả 3 điều kiện, để không phá các trường hợp đúng:
+    1. resolved_to khác xe của persona (so theo token phân biệt).
+    2. Lượt khách hiện tại KHÔNG nêu tên xe đó (không có token trong text).
+    3. Lượt persona gần nhất CÓ nhắc xe của persona (khách đang đáp lại
+       câu chuyện của persona, nên neo gần nhất mạnh hơn neo bài viết).
+    Khi downgrade: resolved_to=None, confidence <= 0.4, ambiguous_models
+    gồm cả hai xe, kèm guard note để model thấy lý do và phải hỏi làm rõ
+    hoặc nói chung, không được khẳng định tên xe nào. KHÔNG tự viết lại
+    thành xe persona, vì '1 chiếc' vẫn có thể là xe trong bài — trạng thái
+    trung thực là ambiguous, không phải một khẳng định khác.
+    """
+    resolved = dict(planner.get("resolved_reference") or {})
+    resolved_to = resolved.get("resolved_to")
+    if not resolved_to or not persona_vehicle:
+        return planner
+    persona_token = _model_token(persona_vehicle)
+    resolved_token = _model_token(str(resolved_to))
+    if not persona_token or not resolved_token:
+        return planner
+    if resolved_token == persona_token:
+        return planner
+    if resolved_token in _strip_diacritics(user_text or ""):
+        return planner
+    if not last_persona_text or persona_token not in _strip_diacritics(
+            last_persona_text):
+        return planner
+    out = dict(planner)
+    out["resolved_reference"] = {
+        **resolved,
+        "resolved_to": None,
+        "confidence": min(float(resolved.get("confidence") or 0.7), 0.4),
+        "ambiguous_models": [persona_vehicle, str(resolved_to)],
+        "guard": "persona_vehicle_mismatch: tham chiếu mơ hồ, khách không nêu "
+                 "tên xe, lượt persona gần nhất nhắc xe persona — không "
+                 "được khẳng định tên xe, hỏi làm rõ hoặc nói chung",
+    }
+    return out

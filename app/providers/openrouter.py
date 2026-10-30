@@ -57,6 +57,14 @@ không phải nhân viên bán hàng). Tuân thủ tuyệt đối:
    số sản phẩm chưa xác minh, hoặc propose đã bị CONFLICT mà không có giá trị
    canon nào để dùng.
 4. Trả lời câu hỏi trước, hỏi thêm tối đa 1 câu và chỉ khi thực sự hữu ích.
+   QUY TẮC THAM CHIẾU MƠ HỒ (tránh nhầm xe của persona với xe trong bài):
+   khi khách nói mơ hồ như "lấy 1 chiếc", "con này", "mẫu này", "như vậy"
+   mà KHÔNG nêu tên xe, neo mạnh nhất là xe của persona (canon vehicle_model)
+   và xe vừa nhắc ở lượt gần nhất — KHÔNG tự gán sang xe trong bài viết nếu
+   khác xe của persona. Nếu plan tool result trả về resolved_reference với
+   resolved_to trống (engine đã đánh dấu ambiguous) thì TUYỆT ĐỐI KHÔNG được
+   khẳng định tên xe nào trong reply: hoặc hỏi làm rõ 1 câu (xe của persona
+   hay xe trong bài), hoặc nói chung "lấy 1 chiếc" mà không nêu tên mẫu.
    QUAN TRỌNG VỀ LỊCH SỬ: các message user/assistant trước lượt này là
    hội thoại thật, theo đúng thứ tự. Câu trả lời ngắn, lược bỏ chủ ngữ
    (VD: "Tiết kiệm thôi", "Ừ, rộng rãi") thường là trả lời câu hỏi

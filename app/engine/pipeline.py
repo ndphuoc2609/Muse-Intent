@@ -33,7 +33,7 @@ from .typed_values import (find_money, parse_dates, parse_distance_km,
                            parse_percent)
 from ..schemas import FinalReply, Planner, TurnRequest, TurnResponse
 from .fake_sender import FakeSender
-from .planner_normalize import normalize_planner_args
+from .planner_normalize import guard_resolved_reference, normalize_planner_args
 from .tool_schemas import TOOL_SCHEMAS, TOOLS
 from .tools import ToolExecutor
 from .validator import validate
@@ -428,6 +428,32 @@ class Pipeline:
                             "tool": tc.name, "status": "UNKNOWN",
                             "reason": f"planner schema: {e}"})
                         continue
+                    # Engine guard cho tham chiếu mơ hồ: planner do model
+                    # đưa ra được chấp nhận nguyên văn trước đây, nên
+                    # "1 chiếc" bị resolve theo xe trong bài (Creta) dù
+                    # persona lái Tucson và vừa kể chuyện Tucson. Guard
+                    # chạy TRƯỚC khi trả plan tool result, để model thấy
+                    # bản đã downgrade thành ambiguous và phải hỏi làm rõ
+                    # hoặc nói chung, thay vì khẳng định tên xe sai.
+                    try:
+                        from ..models import PersonaFact as _PF
+                        _veh = self.s.execute(
+                            select(_PF).where(
+                                _PF.persona_id == req.persona_id,
+                                _PF.fact_key == "vehicle_model",
+                                _PF.status == "active")).scalars().first()
+                        _last_persona = None
+                        for _m in reversed(history):
+                            if _m.role == "persona" and _m.text:
+                                _last_persona = _m.text
+                                break
+                        _guarded = guard_resolved_reference(
+                            planner.model_dump(),
+                            _veh.value if _veh else None,
+                            req.text, _last_persona)
+                        planner = Planner(**_guarded)
+                    except Exception:
+                        pass
                     _append_tool(messages, tc, {
                         "tool": tc.name, "status": "FOUND",
                         "data": planner.model_dump()})

@@ -177,6 +177,41 @@ Chưa kiểm chứng live: prompt mới có làm Luna thực sự propose hay kh
 Phước chạy lại live (VM không có key). Nếu Luna vẫn từ chối propose sau fix này
 thì cần trace lượt đó để xem nó gọi tool nào thay vì propose.
 
+## Phụ lục 3: nhầm xe — persona Tucson nhưng nói khách cân nhắc Creta (đã sửa, lên main)
+
+Transcript live 30/10: Minh Anh kể "lái Tucson từ Quận 7 đi Vũng Tàu", khách
+nói "Tôi cũng tính lấy 1 chiếc", reply lại khẳng định "bạn đang cân nhắc Creta".
+
+Cơ chế (đọc code, không đoán): resolved_reference do model đưa ra trong
+plan_turn được pipeline chấp nhận nguyên văn; model (và cả Fake) resolve tham
+chiếu mơ hồ ("1 chiếc", "con này", "như vậy") theo XE TRONG BÀI VIẾT, mà bài
+viết mặc định là Creta — trong khi persona lái Tucson và vừa kể chuyện Tucson.
+Không có lớp nào đối chiếu resolved_to với canon vehicle_model hay lịch sử
+gần nhất.
+
+Fix (engine + prompt, không chỉ sửa prompt):
+- Engine guard `guard_resolved_reference` trong pipeline, chạy sau plan và
+  trước khi trả plan tool result để model thấy bản đã sửa. Chỉ downgrade khi
+  đủ 3 điều kiện: resolved_to khác xe persona, lượt khách không nêu tên xe đó,
+  và lượt persona gần nhất có nhắc xe persona. Khi downgrade: resolved_to=None,
+  confidence ≤ 0.4, ambiguous_models gồm cả hai xe, kèm guard note. KHÔNG tự
+  viết lại thành xe persona — "1 chiếc" vẫn có thể là xe trong bài, trạng thái
+  trung thực là ambiguous.
+- Prompt thêm quy tắc tham chiếu mơ hồ: resolved_to trống thì tuyệt đối không
+  khẳng định tên xe nào — hỏi làm rõ 1 câu (xe persona hay xe trong bài) hoặc
+  nói chung không nêu tên mẫu.
+- Test mới `tests/test_reference_guard.py` (6 test): guard unit cho cả 4 trường
+  hợp (downgrade / explicit giữ / cùng xe giữ / không có lượt persona gần nhất
+  thì neo bài viết vẫn đứng), và e2e 2 lượt đúng setup live (Minh Anh + bài
+  Creta): lượt 2 planner resolved_to=None và reply không còn chữ Creta.
+- Cột Conversation Planner làm ở phụ lục 2 giờ phát huy tác dụng chẩn đoán:
+  lượt lỗi đó sẽ hiện "Tham chiếu đã giải quyết: Hyundai Creta" — nhìn là thấy
+  ngay điểm sai thay vì phải mở JSON trace.
+
+Giới hạn: guard chỉ bắt trường hợp có lượt persona gần nhất nhắc xe persona.
+Lượt đầu tiên với tham chiếu mơ hồ và không có lịch sử thì neo bài viết vẫn
+được giữ (đó là hành vi hợp lý, không phải lỗi).
+
 ## Chưa kiểm chứng (nói rõ, không nhận vơ)
 
 - Live Luna: VM không có OpenRouter key. `propose_story` bắt buộc tags/categories có
