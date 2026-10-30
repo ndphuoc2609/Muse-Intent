@@ -187,6 +187,55 @@ class QuestionState(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
+class StoryTold(Base):
+    """Story đã kể, theo dõi theo persona + actor + thread + message.
+
+    told_in_message_id trên PersonaStory chỉ là lần kể đầu tiên (giữ
+    để tương thích); bảng này mới là bản ghi đầy đủ: story được truy
+    xuất lại và kể lại cũng có một dòng, không chỉ story vừa tạo.
+    """
+    __tablename__ = "story_told"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    event_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("persona_stories.event_id"))
+    persona_id: Mapped[str] = mapped_column(String(64))
+    actor_id: Mapped[str] = mapped_column(String(64))
+    thread_id: Mapped[str] = mapped_column(String(32))
+    message_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("messages.id"))
+    told_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    __table_args__ = (
+        UniqueConstraint("event_id", "actor_id", "message_id",
+                         name="uq_story_told_event_actor_message"),
+    )
+
+
+class TurnIdempotency(Base):
+    """Idempotency theo scope (thread, actor, key), không phải toàn cục.
+
+    Lý do tách bảng: Message.idempotency_key có unique toàn cục nên
+    hai message (user + persona) cùng key đã vi phạm, và cùng key ở
+    thread khác cũng vi phạm. Bảng này có unique theo scope, kèm
+    request_hash để phân biệt cùng key khác payload -> conflict.
+    Message.idempotency_key là legacy, các lượt mới để NULL.
+    """
+    __tablename__ = "turn_idempotency"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    thread_id: Mapped[str] = mapped_column(String(32))
+    actor_id: Mapped[str] = mapped_column(String(64))
+    idempotency_key: Mapped[str] = mapped_column(String(128))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    user_message_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    persona_message_id: Mapped[str | None] = mapped_column(
+        String(32), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="in_progress")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    __table_args__ = (
+        UniqueConstraint("thread_id", "actor_id", "idempotency_key",
+                         name="uq_turn_idem_scope"),
+    )
+
+
 class Delivery(Base):
     __tablename__ = "deliveries"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)

@@ -74,8 +74,10 @@ class OpenRouterProvider:
             "X-Title": "persona-dialogue",
         }
         last_err: Exception | None = None
+        http_attempts = 0
         for attempt in range(SETTINGS.llm_max_retries + 1):
             try:
+                http_attempts += 1
                 with httpx.Client(timeout=SETTINGS.llm_timeout_s) as client:
                     r = client.post(
                         f"{SETTINGS.openrouter_base_url}/chat/completions",
@@ -103,7 +105,10 @@ class OpenRouterProvider:
                     tool_calls=calls, text=choice.get("content") or "",
                     usage={"prompt_tokens": usage.get("prompt_tokens"),
                            "completion_tokens": usage.get("completion_tokens"),
-                           "cost_usd": usage.get("cost")})
+                           # cost có thể None nếu provider không trả về:
+                           # pipeline KHÔNG được coi None là 0.
+                           "cost_usd": usage.get("cost"),
+                           "http_attempts": http_attempts})
             except RuntimeError:
                 raise
             except Exception as e:  # timeout / 5xx / 429: retry có giới hạn
@@ -114,13 +119,18 @@ class OpenRouterProvider:
 
 
 def make_provider():
-    """Factory: có key + model thì OpenRouter, ngược lại Fake (offline)."""
+    """Factory: có key + model thì OpenRouter, ngược lại Fake (offline).
+
+    KHÔNG fallback im lặng: nếu cấu hình yêu cầu openrouter nhưng thiếu
+    key, raise để API báo misconfigured và turns trả lỗi rõ ràng, thay
+    vì chạy Fake mà người dùng tưởng Luna đang trả lời.
+    """
     from .fake import FakeProvider
 
-    if SETTINGS.llm_provider == "openrouter" and SETTINGS.openrouter_api_key:
+    if SETTINGS.llm_provider == "openrouter":
+        if not SETTINGS.openrouter_api_key:
+            raise RuntimeError(
+                "LLM_PROVIDER=openrouter nhưng OPENROUTER_API_KEY chưa "
+                "cấu hình — không fallback sang FakeProvider")
         return OpenRouterProvider()
-    if SETTINGS.llm_provider == "fake":
-        return FakeProvider()
-    # llm_provider=openrouter nhưng thiếu key: không tự đoán, dùng Fake
-    # và để API /health báo rõ trạng thái cấu hình.
     return FakeProvider()

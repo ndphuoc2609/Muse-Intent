@@ -1,0 +1,51 @@
+[
+  {
+    "actor": "actor-1",
+    "input": "Bác đang đi xe gì và mua lúc nào?",
+    "status": "sent",
+    "reply": "Mình đang đi Hyundai Creta đó bạn. Mình mua xe tháng 2024-03 đó.",
+    "validator_errors": []
+  },
+  {
+    "actor": "actor-1",
+    "input": "Bác đi xe màu gì thế?",
+    "status": "sent",
+    "reply": "Mình đang đi xe màu trắng đó bạn.",
+    "validator_errors": []
+  },
+  {
+    "actor": "actor-1",
+    "input": "Em đang cân nhắc con này cho mẹ.",
+    "status": "sent",
+    "reply": "Mình đang đi Hyundai Creta đó bạn. Bạn thích mẫu này ở điểm nào nhất?",
+    "validator_errors": []
+  },
+  {
+    "actor": "actor-1",
+    "input": "Tiết kiệm thôi, đang tính kiếm đại lý để xem xe ạ.",
+    "status": "sent",
+    "reply": "Theo dữ kiện mình có: 599 triệu đồng (giá mẫu, chưa phải giá thực tế) (dữ liệu mẫu, không phải giá thực tế).",
+    "validator_errors": []
+  },
+  {
+    "actor": "actor-1",
+    "input": "Bác có kỷ niệm nào đáng nhớ với xe không?",
+    "status": "sent",
+    "reply": "Đi Creta về Nam Định cuối tuần, đường trường êm, cả nhà ngồi thoải mái.",
+    "validator_errors": []
+  },
+  {
+    "actor": "actor-2",
+    "input": "Bác đang đi xe gì?",
+    "status": "sent",
+    "reply": "Mình đang đi Hyundai Creta đó bạn.",
+    "validator_errors": []
+  },
+  {
+    "actor": "actor-1",
+    "input": "Thôi, mình không muốn tiếp tục nữa.",
+    "status": "sent",
+    "reply": "Ok bạn, mình dừng ở đây nhé. Khi nào cần thì nhắn lại.",
+    "validator_errors": []
+  }
+]

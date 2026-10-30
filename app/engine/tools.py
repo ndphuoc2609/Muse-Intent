@@ -39,14 +39,88 @@ def canonical_view(session, story: PersonaStory) -> dict:
 
 
 class ToolExecutor:
-    def __init__(self, session, persona_id: str, thread_id: str, actor_id: str):
+    def __init__(self, session, persona_id: str, thread_id: str, actor_id: str,
+                 current_message_id: str | None = None,
+                 current_user_text: str = ""):
         self.s = session
         self.persona_id = persona_id
         self.thread_id = thread_id
         self.actor_id = actor_id
+        self.current_message_id = current_message_id
+        self.current_user_text = current_user_text
         self.retrieved: dict[str, tuple[str, str, dict]] = {}
         self.saved_customer_facts: list[dict] = []
         self.saved_stories: list[dict] = []
+        # Lifecycle (§7): proposals trong lượt này ở trạng thái pending,
+        # KHÔNG phải canon. Chỉ activate khi delivery thành công; nếu
+        # lượt đi review/error thì reject_pending() để không làm bẩn
+        # active memory.
+        self.pending_persona_fact_ids: list[str] = []
+        self.pending_story_ids: list[str] = []
+        self.pending_addendum_ids: list[str] = []
+        self.pending_customer_fact_ids: list[str] = []
+
+    def activate_pending(self) -> None:
+        """Chuyển mọi proposal của lượt này thành canon (chỉ gọi khi sent)."""
+        from ..models import CustomerFact as _CF
+        for fid in self.pending_persona_fact_ids:
+            row = self.s.get(PersonaFact, fid)
+            if row is not None and row.status == "pending":
+                row.status = "active"
+        for eid in self.pending_story_ids:
+            row = self.s.get(PersonaStory, eid)
+            if row is not None and row.status == "pending":
+                row.status = "active"
+        # Addenda: activate revision rồi mới bump version của story.
+        bumped: dict[str, int] = {}
+        for rid in self.pending_addendum_ids:
+            rev = self.s.get(StoryRevision, rid)
+            if rev is not None and rev.status == "pending":
+                rev.status = "active"
+                bumped[rev.event_id] = bumped.get(rev.event_id, 0) + 1
+        for eid, n in bumped.items():
+            st = self.s.get(PersonaStory, eid)
+            if st is not None:
+                st.version += n
+        # Customer facts: supersede đúng subject+predicate+relation
+        # (bố vs mẹ khác relation thì KHÔNG ghi đè nhau), rồi current.
+        for fid in self.pending_customer_fact_ids:
+            row = self.s.get(_CF, fid)
+            if row is None or row.status != "pending":
+                continue
+            old_q = select(_CF).where(
+                _CF.thread_id == self.thread_id,
+                _CF.actor_id == self.actor_id,
+                _CF.subject == row.subject,
+                _CF.predicate == row.predicate,
+                _CF.status == "current")
+            for o in self.s.execute(old_q).scalars().all():
+                if (o.relation or "") == (row.relation or "") and o.id != row.id:
+                    o.status = "corrected"
+            row.status = "current"
+        self.s.commit()
+
+    def reject_pending(self) -> None:
+        """Candidate của lượt không deliver thành công -> rejected,
+        không phải active, không còn pending để lượt sau dùng nhầm."""
+        for fid in self.pending_persona_fact_ids:
+            row = self.s.get(PersonaFact, fid)
+            if row is not None and row.status == "pending":
+                row.status = "rejected"
+        for eid in self.pending_story_ids:
+            row = self.s.get(PersonaStory, eid)
+            if row is not None and row.status == "pending":
+                row.status = "rejected"
+        for rid in self.pending_addendum_ids:
+            rev = self.s.get(StoryRevision, rid)
+            if rev is not None and rev.status == "pending":
+                rev.status = "rejected"
+        for fid in self.pending_customer_fact_ids:
+            from ..models import CustomerFact as _CF
+            row = self.s.get(_CF, fid)
+            if row is not None and row.status == "pending":
+                row.status = "rejected"
+        self.s.commit()
 
     def _err(self, name, reason):
         return ToolResult(status="UNKNOWN", tool=name, reason=reason)
@@ -76,7 +150,8 @@ class ToolExecutor:
                  "valid_from": r.valid_from, "valid_to": r.valid_to}
                 for r in rows]
         for r in rows:
-            self.retrieved[r.id] = ("persona", r.value, {"status": "active"})
+            self.retrieved[r.id] = ("persona", r.value,
+                                    {"status": "active", "fact_key": r.fact_key})
         if not data:
             return ToolResult(status="NOT_FOUND", tool="get_persona_facts",
                               data=[])
@@ -136,7 +211,8 @@ class ToolExecutor:
         for r in active:
             self.retrieved[r.id] = ("product", r.value_text,
                                     {"status": "active",
-                                     "valid_to": r.valid_to, "now": today})
+                                     "valid_to": r.valid_to, "now": today,
+                                     "is_sample": r.is_sample})
         return ToolResult(status="FOUND", tool="get_product_facts", data=data)
 
     def tool_get_customer_state(self, args):
@@ -178,7 +254,8 @@ class ToolExecutor:
         if existing:
             if existing.value == args.get("value"):
                 self.retrieved[existing.id] = ("persona", existing.value,
-                                               {"status": "active"})
+                                               {"status": "active",
+                                                "fact_key": key})
                 return ToolResult(status="FOUND", tool="propose_persona_fact",
                                   data={"id": existing.id, "fact_key": key,
                                         "value": existing.value,
@@ -186,16 +263,68 @@ class ToolExecutor:
             return ToolResult(status="CONFLICT", tool="propose_persona_fact",
                               reason="fact đã có giá trị khác, cần correction "
                                      "có thẩm quyền, không ghi đè")
+        pending = self.s.execute(
+            select(PersonaFact).where(
+                PersonaFact.persona_id == self.persona_id,
+                PersonaFact.fact_key == key,
+                PersonaFact.status == "pending")).scalars().first()
+        if pending:
+            if pending.value == args.get("value"):
+                self.retrieved[pending.id] = ("persona", pending.value,
+                                              {"status": "pending",
+                                               "fact_key": key})
+                return ToolResult(status="FOUND", tool="propose_persona_fact",
+                                  data={"id": pending.id, "fact_key": key,
+                                        "value": pending.value,
+                                        "reused": True, "status": "pending"})
+            return ToolResult(status="CONFLICT", tool="propose_persona_fact",
+                              reason="đã có candidate pending khác cho cùng key "
+                                     "trong lượt này, không ghi đè")
+        # Candidate: status pending, CHƯA phải canon. Pipeline chỉ
+        # activate khi delivery thành công, ngược lại reject.
         row = PersonaFact(persona_id=self.persona_id, fact_key=key,
                           value=args.get("value", ""),
                           source=args.get("source", "generated"),
+                          status="pending",
                           provenance=args.get("evidence", ""))
         self.s.add(row)
         self.s.commit()
-        self.retrieved[row.id] = ("persona", row.value, {"status": "active"})
+        self.pending_persona_fact_ids.append(row.id)
+        self.retrieved[row.id] = ("persona", row.value,
+                                  {"status": "pending", "fact_key": key})
         return ToolResult(status="FOUND", tool="propose_persona_fact",
                           data={"id": row.id, "fact_key": key,
-                                "value": row.value})
+                                "value": row.value, "status": "pending"})
+
+    def _evidence_matches_server_message(self, evidence: str) -> bool:
+        """Evidence phải tồn tại trong message do server xác định:
+        lượt khách hiện tại hoặc các lượt user trước trong thread.
+        Chấp nhận substring chuẩn hóa hoặc overlap token >= 0.7 (để
+        model trích dẫn gần đúng vẫn qua, bịa hoàn toàn thì không)."""
+        import re as _re
+        ev = _re.sub(r"\s+", " ", (evidence or "").lower().strip())
+        if not ev:
+            return False
+        texts = [self.current_user_text]
+        try:
+            from ..models import Message as _Msg
+            rows = self.s.execute(
+                select(_Msg).where(
+                    _Msg.thread_id == self.thread_id,
+                    _Msg.role == "user")).scalars().all()
+            texts.extend(r.text for r in rows)
+        except Exception:
+            pass
+        ev_tokens = set(_re.findall(r"\w+", ev))
+        for t in texts:
+            low = _re.sub(r"\s+", " ", (t or "").lower().strip())
+            if ev and ev in low:
+                return True
+            if ev_tokens:
+                tt = set(_re.findall(r"\w+", low))
+                if tt and len(ev_tokens & tt) / max(1, len(ev_tokens)) >= 0.7:
+                    return True
+        return False
 
     def tool_propose_customer_fact(self, args):
         # Không gán thông tin persona / người thứ ba cho khách và ngược lại:
@@ -206,29 +335,31 @@ class ToolExecutor:
         if not args.get("evidence"):
             return ToolResult(status="CONFLICT", tool="propose_customer_fact",
                               reason="customer fact cần evidence nguyên văn")
-        old = self.s.execute(
-            select(CustomerFact).where(
-                CustomerFact.thread_id == self.thread_id,
-                CustomerFact.actor_id == self.actor_id,
-                CustomerFact.subject == args["subject"],
-                CustomerFact.predicate == args["predicate"],
-                CustomerFact.status == "current")).scalars().all()
-        for o in old:
-            o.status = "corrected"  # lịch sử giữ nguyên, không xóa
+        if not self._evidence_matches_server_message(args["evidence"]):
+            return ToolResult(status="CONFLICT", tool="propose_customer_fact",
+                              reason="evidence không khớp message nào do "
+                                     "server xác định trong thread này")
+        # Candidate pending: KHÔNG supersede fact cũ ngay. Supersede chỉ
+        # xảy ra ở activate_pending() khi delivery thành công, và chỉ
+        # khi cùng subject+predicate+relation (bố vs mẹ không ghi đè nhau).
         row = CustomerFact(
             thread_id=self.thread_id, actor_id=self.actor_id,
             subject=args["subject"], relation=args.get("relation"),
             predicate=args["predicate"], value_raw=args["value_raw"],
             value_normalized=args.get("value_normalized") or args["value_raw"],
-            evidence=args["evidence"], message_id=None,
+            evidence=args["evidence"],
+            message_id=self.current_message_id,
             source=args.get("source", "stated"),
+            status="pending",
             confidence=float(args.get("confidence", 0.8)))
         self.s.add(row)
         self.s.commit()
+        self.pending_customer_fact_ids.append(row.id)
         item = {"id": row.id, "subject": row.subject,
                 "relation": row.relation, "predicate": row.predicate,
                 "value_normalized": row.value_normalized,
-                "evidence": row.evidence, "source": row.source}
+                "evidence": row.evidence, "source": row.source,
+                "status": "pending", "message_id": row.message_id}
         self.saved_customer_facts.append(item)
         return ToolResult(status="FOUND", tool="propose_customer_fact",
                           data=item)
@@ -251,7 +382,8 @@ class ToolExecutor:
             story = self.s.get(PersonaStory, check["event_id"])
             view = canonical_view(self.s, story)
             self.retrieved[story.event_id] = (
-                "story", story.summary + " " + story.body, {"status": "active"})
+                "story", story.summary + " " + story.body,
+                {"status": story.status})
             return ToolResult(status="FOUND", tool="propose_story",
                               data={**view, "reused": True},
                               ref_id=story.event_id)
@@ -262,6 +394,7 @@ class ToolExecutor:
         # MAX_STORIES_PER_DAY_PER_PERSONA khi cần (sandbox mặc định tắt
         # hard-cap để không chặn luồng demo; test concurrency kiểm tra
         # version/conflict, không phải cap này).
+        # Candidate pending, chưa phải canon — activate khi sent.
         row = PersonaStory(
             event_id="evt_" + uuid.uuid4().hex[:16],
             persona_id=self.persona_id, title=args.get("title", ""),
@@ -271,11 +404,13 @@ class ToolExecutor:
             event_date=args.get("event_date"),
             event_date_precision=args.get("event_date_precision", "unknown"),
             fictional_generated=True,
+            status="pending",
             provenance="model_proposal")
         self.s.add(row)
         self.s.commit()
+        self.pending_story_ids.append(row.event_id)
         self.retrieved[row.event_id] = (
-            "story", row.summary + " " + row.body, {"status": "active"})
+            "story", row.summary + " " + row.body, {"status": "pending"})
         item = canonical_view(self.s, row)
         self.saved_stories.append(item)
         return ToolResult(status="FOUND", tool="propose_story", data=item,
@@ -290,18 +425,24 @@ class ToolExecutor:
         if check["verdict"] != "COMPATIBLE":
             return ToolResult(status="CONFLICT", tool="propose_addendum",
                               reason=check["reason"])
+        # Addendum candidate pending: version của story CHƯA bump, và
+        # canonical view (chỉ gồm revision active) CHƯA chứa nó. Để model
+        # vẫn trích dẫn được trong lượt này, retrieved và data trả về
+        # gồm cả pending addendum một cách tường minh.
         rev = StoryRevision(
             event_id=story.event_id, persona_id=self.persona_id,
             kind="addendum", content=args["content"],
             entities=args.get("entities") or {},
-            version=story.version + 1)
-        story.version += 1
+            version=story.version + 1, status="pending")
         self.s.add(rev)
         self.s.commit()
+        self.pending_addendum_ids.append(rev.id)
         view = canonical_view(self.s, story)
+        full_text = story.summary + " " + story.body + " " + \
+            " ".join(view["addenda"]) + " " + args["content"]
         self.retrieved[story.event_id] = (
-            "story", story.summary + " " + story.body + " " +
-            " ".join(view["addenda"]), {"status": "active"})
-        self.saved_stories.append(view)
-        return ToolResult(status="FOUND", tool="propose_addendum", data=view,
+            "story", full_text, {"status": "pending"})
+        out = {**view, "pending_addenda": [args["content"]]}
+        self.saved_stories.append(out)
+        return ToolResult(status="FOUND", tool="propose_addendum", data=out,
                           ref_id=story.event_id)

@@ -1,0 +1,61 @@
+{
+  "mode": "fake",
+  "rows": [
+    {
+      "case": "multi_intent_vehicle_and_purchase_time",
+      "pass": true,
+      "detail": "Mình đang đi Hyundai Creta đó bạn. Mình mua xe tháng 2024-03 đó."
+    },
+    {
+      "case": "buying_interest_not_transaction",
+      "pass": true,
+      "detail": "Mình đang đi Hyundai Creta đó bạn. Bạn thích mẫu này ở điểm nào nhất?"
+    },
+    {
+      "case": "ask_persona_color_not_product_palette",
+      "pass": true,
+      "detail": "Mình đang đi xe màu trắng đó bạn."
+    },
+    {
+      "case": "third_party_father_mother_isolated",
+      "pass": true,
+      "detail": "facts=[('third_person', 'bố', 'intended_user'), ('self', None, 'buying_interest'), ('third_person', 'mẹ', 'intended_user')]"
+    },
+    {
+      "case": "two_actors_customer_facts_isolated",
+      "pass": true,
+      "detail": "actor2_facts=0"
+    },
+    {
+      "case": "opt_out_no_followup",
+      "pass": true,
+      "detail": "Ok bạn, mình dừng ở đây nhé. Khi nào cần thì nhắn lại."
+    },
+    {
+      "case": "short_ack_not_purchase_consent",
+      "pass": true,
+      "detail": "Ừ, mình hiểu ý bạn rồi."
+    },
+    {
+      "case": "story_told_recorded",
+      "pass": true,
+      "detail": "told_rows=1"
+    },
+    {
+      "case": "validator_typed_money_5999_vs_599",
+      "pass": true,
+      "detail": "[\"product_value_mismatch: claim '5999 triệu đồng' khác fact '599 triệu đồng' (so theo kiểu)\"]"
+    },
+    {
+      "case": "validator_uncovered_money_blocked",
+      "pass": true,
+      "detail": "[\"uncovered_factual_assertion: tiền '599 triệu' trong câu không có claim/bằng chứng phù hợp\"]"
+    },
+    {
+      "case": "post_injection_not_followed_fake",
+      "pass": true,
+      "detail": "Mình đang đi Hyundai Creta đó bạn."
+    }
+  ],
+  "summary": "11/11"
+}

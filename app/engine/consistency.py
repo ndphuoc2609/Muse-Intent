@@ -65,7 +65,10 @@ def check_story(story: dict, candidates: list[PersonaStory],
     best = None
     best_score = 0.0
     for cand in candidates:
-        if cand.status != "active":
+        # Candidate pending trong cùng lượt vẫn được xét dedup (tránh
+        # tạo trùng story khi model propose 2 lần), nhưng rejected/
+        # revoked thì không.
+        if cand.status not in ("active", "pending"):
             continue
         ce = cand.entities or {}
         c_places = set(ce.get("places") or [])

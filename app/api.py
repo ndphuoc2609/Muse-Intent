@@ -23,8 +23,21 @@ from .seed import seed
 ENGINE = make_engine()
 init_db(ENGINE)
 Session = session_factory(ENGINE)
-PROVIDER = make_provider()
+try:
+    PROVIDER = make_provider()
+    PROVIDER_ERROR = None
+except RuntimeError as _e:
+    # Cấu hình yêu cầu live nhưng thiếu key: app vẫn chạy để /health
+    # báo rõ, nhưng turns sẽ trả lỗi thay vì chạy Fake im lặng.
+    PROVIDER = None
+    PROVIDER_ERROR = str(_e)
 SENDER = FakeSender()
+
+
+def _require_provider():
+    if PROVIDER is None:
+        raise HTTPException(502, PROVIDER_ERROR or "provider chưa cấu hình")
+    return PROVIDER
 
 app = FastAPI(title="persona-dialogue", version="1.0.0")
 
@@ -36,8 +49,9 @@ def _session():
 @app.get("/health")
 def health():
     return {
-        "status": "ok",
-        "provider": type(PROVIDER).__name__,
+        "status": "misconfigured" if PROVIDER is None else "ok",
+        "provider": type(PROVIDER).__name__ if PROVIDER is not None else None,
+        "provider_error": PROVIDER_ERROR,
         "llm_provider_config": SETTINGS.llm_provider,
         "openrouter_configured": bool(SETTINGS.openrouter_api_key),
         "openrouter_model": SETTINGS.openrouter_model,
@@ -130,7 +144,7 @@ def turn(thread_id: str, req: TurnRequest,
         raise HTTPException(400, "thread_id trong body khác URL")
     req.thread_id = thread_id if thread_id != "new" else None
     with _session() as s:
-        pipe = Pipeline(s, PROVIDER, SENDER)
+        pipe = Pipeline(s, _require_provider(), SENDER)
         result = pipe.run(req, idempotency_key=idempotency_key)
         return JSONResponse(result.model_dump(),
                             status_code=200 if result.status != "error" else 502)
@@ -141,7 +155,7 @@ def turn_new(req: TurnRequest,
              idempotency_key: str | None = Header(default=None,
                                                   alias="Idempotency-Key")):
     with _session() as s:
-        pipe = Pipeline(s, PROVIDER, SENDER)
+        pipe = Pipeline(s, _require_provider(), SENDER)
         return pipe.run(req, idempotency_key=idempotency_key)
 
 

@@ -16,16 +16,20 @@ Mọi số vòng, budget, timeout đều có giới hạn rõ ràng trong config
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 import uuid
 
 import jsonschema
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from ..config import SETTINGS
 from ..models import (Actor, Delivery, Message, Persona, PersonaStory,
-                      QuestionState, Thread)
+                      QuestionState, StoryTold, Thread)
+from .typed_values import (find_money, parse_dates, parse_distance_km,
+                           parse_percent)
 from ..schemas import FinalReply, Planner, TurnRequest, TurnResponse
 from .fake_sender import FakeSender
 from .planner_normalize import normalize_planner_args
@@ -65,23 +69,61 @@ def _append_tool(messages, tc, payload):
     })
 
 
-def _context_block(persona, thread, history, pending_qs, customer_facts):
+def _norm_text(t: str) -> str:
+    return " ".join((t or "").split())
+
+
+def _request_hash(thread_id: str, actor_id: str, text: str) -> str:
+    return hashlib.sha256(
+        f"{thread_id}|{actor_id}|{_norm_text(text)}".encode("utf-8")
+    ).hexdigest()[:32]
+
+
+def _context_block(persona, thread, history, pending_qs, customer_facts,
+                   actor=None, declined_qs=None):
     lines = [
         f"Persona: {persona.display_name}, {persona.age or ''} tuổi, "
         f"khu vực {persona.region}. Phong cách: {persona.style}",
         f"Bài viết: {thread.post_text or '(không có nội dung bài viết)'}",
         f"Xe trong bài viết: {', '.join(thread.post_vehicle_models) or '(chưa rõ)'}",
-        "Câu hỏi đang chờ: " + (", ".join(
+        f"Actor hiện tại: {actor.id if actor else '(không rõ)'} "
+        f"({actor.display_name if actor else ''})",
+        "Câu hỏi đang chờ của actor hiện tại: " + (", ".join(
             f"{q.question_key} ({q.question_text})" for q in pending_qs)
             or "(không có)"),
-        "Customer facts hiện tại: " + (", ".join(
+        "Câu hỏi actor hiện tại đã từ chối (KHÔNG hỏi lại): " + (", ".join(
+            f"{q.question_key} ({q.question_text})" for q in (declined_qs or []))
+            or "(không có)"),
+        "Customer facts RIÊNG của actor hiện tại (không gán cho actor khác): "
+        + (", ".join(
             f"{f.subject}:{f.predicate}={f.value_normalized}"
             for f in customer_facts) or "(không có)"),
-        "Lịch sử gần đây:",
+        "Lịch sử chung của thread (công khai, có thể có lời của actor khác "
+        "— không gán lời người khác thành thông tin của actor hiện tại):",
     ]
     for m in history[-6:]:
-        lines.append(f"- {m.role}: {m.text}")
+        who = m.actor_id or "persona"
+        lines.append(f"- {m.role} [{who}]: {m.text}")
     return "\n".join(lines)
+
+
+def _is_pure_social(text: str) -> bool:
+    """Text thuần chỉ được chấp nhận làm final khi là xã giao thuần túy:
+    không tiền/ngày/%/km, không màu xe, không câu hỏi, không cam kết
+    giao dịch, không xin thông tin riêng. Mọi thứ khác phải qua
+    submit_final_reply để validator kiểm chứng claim."""
+    t = (text or "").strip()
+    if not t or len(t) > 200 or "?" in t:
+        return False
+    low = t.lower()
+    if any(p in low for p in ("đã đặt cọc", "đã giữ xe", "đã chốt xe",
+                              "nhân viên sẽ gọi", "số điện thoại",
+                              "địa chỉ nhà", "màu ")):
+        return False
+    if find_money(t) or parse_percent(t) or parse_distance_km(t) \
+            or parse_dates(t):
+        return False
+    return True
 
 
 def _validate_tool_args(name, args):
@@ -128,71 +170,141 @@ class Pipeline:
             actor = Actor(id=req.actor_id, display_name=req.actor_name)
             self.s.add(actor)
             self.s.commit()
-        # --- 2. Idempotency (§13).
+        # --- 2. Idempotency (§13, scoped qua bảng turn_idempotency):
+        # key chỉ có nghĩa trong (thread, actor, payload hash). Cùng key +
+        # cùng payload -> replay. Cùng key + khác payload/scope -> conflict
+        # rõ ràng, KHÔNG trả lại reply cũ im lặng. Message.idempotency_key
+        # là legacy unique toàn cục nên các lượt mới để NULL, tránh
+        # user+persona cùng key vi phạm unique và key trùng ở thread khác.
+        reuse_user_msg = None
+        idem_rec = None
         if idempotency_key:
-            prev = self.s.execute(
-                select(Message).where(
-                    Message.idempotency_key == idempotency_key)).scalars().first()
-            if prev is not None:
-                if prev.status == "sent":
+            from ..models import TurnIdempotency as _TI
+            req_hash = _request_hash(thread.id, req.actor_id, req.text)
+            idem_rec = self.s.execute(
+                select(_TI).where(
+                    _TI.thread_id == thread.id,
+                    _TI.actor_id == req.actor_id,
+                    _TI.idempotency_key == idempotency_key)).scalars().first()
+            if idem_rec is not None:
+                if idem_rec.request_hash != req_hash:
                     return TurnResponse(
-                        status="sent", thread_id=thread.id,
-                        message_id=prev.id, reply_text=prev.text,
-                        trace={**prev.trace, "idempotent_replay": True})
-                if prev.status == "error":
-                    # Retry cùng key cho lần gửi lỗi: gửi lại đúng draft cũ,
-                    # không chạy lại model, không tạo story mới.
-                    result = self.sender.send(prev.id, prev.text)
-                    if result["status"] == "sent":
-                        prev.status = "sent"
-                        old_del = self.s.execute(
-                            select(Delivery).where(
-                                Delivery.message_id == prev.id)).scalars().first()
-                        if old_del is not None:
-                            old_del.status = "sent"
-                            old_del.error = None
-                        else:
-                            self.s.add(Delivery(message_id=prev.id,
-                                                sender="fake", status="sent"))
-                        self.s.commit()
-                        return TurnResponse(status="sent", thread_id=thread.id,
-                                            message_id=prev.id,
-                                            reply_text=prev.text,
-                                            trace={**prev.trace,
-                                                   "recovered": True})
-                    return TurnResponse(status="error", thread_id=thread.id,
-                                        message_id=prev.id,
-                                        reply_text=prev.text,
-                                        trace={**prev.trace,
-                                               "recovery_failed": True})
-                # draft/review/blocked: trả lại nguyên trạng, không gửi lặp.
-                return TurnResponse(status=prev.status, thread_id=thread.id,  # type: ignore
+                        status="error", thread_id=thread.id,
+                        reply_text=None,
+                        validator_errors=[
+                            "idempotency_conflict: Idempotency-Key đã dùng "
+                            "cho nội dung khác trong cùng thread/actor; "
+                            "dùng key mới cho lượt mới, hoặc gửi lại đúng "
+                            "payload cũ"],
+                        trace={"idempotency_conflict": True})
+                if idem_rec.persona_message_id:
+                    prev = self.s.get(Message, idem_rec.persona_message_id)
+                    if prev is not None:
+                        if prev.status == "sent":
+                            return TurnResponse(
+                                status="sent", thread_id=thread.id,
+                                message_id=prev.id, reply_text=prev.text,
+                                trace={**prev.trace, "idempotent_replay": True})
+                        if prev.status == "error":
+                            result = self.sender.send(prev.id, prev.text)
+                            if result["status"] == "sent":
+                                prev.status = "sent"
+                                old_del = self.s.execute(
+                                    select(Delivery).where(
+                                        Delivery.message_id == prev.id)).scalars().first()
+                                if old_del is not None:
+                                    old_del.status = "sent"
+                                    old_del.error = None
+                                else:
+                                    self.s.add(Delivery(message_id=prev.id,
+                                                        sender="fake", status="sent"))
+                                idem_rec.status = "sent"
+                                self.s.commit()
+                                return TurnResponse(
+                                    status="sent", thread_id=thread.id,
                                     message_id=prev.id, reply_text=prev.text,
-                                    trace={**prev.trace,
-                                           "idempotent_replay": True})
+                                    trace={**prev.trace, "recovered": True})
+                            return TurnResponse(
+                                status="error", thread_id=thread.id,
+                                message_id=prev.id, reply_text=prev.text,
+                                trace={**prev.trace, "recovery_failed": True})
+                        return TurnResponse(
+                            status=prev.status, thread_id=thread.id,
+                            message_id=prev.id, reply_text=prev.text,
+                            trace={**prev.trace, "idempotent_replay": True})
+                elif idem_rec.user_message_id:
+                    reuse_user_msg = self.s.get(Message, idem_rec.user_message_id)
+            else:
+                # Key ở thread/actor khác không ảnh hưởng scope này:
+                # không lookup toàn cục nữa.
+                pass
         # Lưu message khách trước (message_id cho evidence).
-        user_msg = Message(thread_id=thread.id, actor_id=req.actor_id,
-                           role="user", text=req.text, status="sent")
-        self.s.add(user_msg)
-        self.s.commit()
+        if reuse_user_msg is not None:
+            user_msg = reuse_user_msg
+        else:
+            user_msg = Message(thread_id=thread.id, actor_id=req.actor_id,
+                               role="user", text=req.text, status="sent")
+            self.s.add(user_msg)
+            self.s.commit()
+            if idempotency_key:
+                from ..models import TurnIdempotency as _TI2
+                if idem_rec is None:
+                    idem_rec = _TI2(
+                        thread_id=thread.id, actor_id=req.actor_id,
+                        idempotency_key=idempotency_key,
+                        request_hash=_request_hash(thread.id, req.actor_id,
+                                                   req.text),
+                        user_message_id=user_msg.id, status="in_progress")
+                    self.s.add(idem_rec)
+                    try:
+                        self.s.commit()
+                    except IntegrityError:
+                        # Race: request khác cùng scope+key đã claim trước.
+                        self.s.rollback()
+                        return TurnResponse(
+                            status="error", thread_id=thread.id,
+                            reply_text=None,
+                            validator_errors=[
+                                "idempotency_conflict: hai request cùng key "
+                                "chạy đồng thời; gửi lại cùng key để nhận "
+                                "replay, hoặc dùng key mới"],
+                            trace={"idempotency_conflict": True})
+                else:
+                    idem_rec.user_message_id = user_msg.id
+                    self.s.commit()
+        def _idem_update(msg):
+            if idempotency_key and idem_rec is not None:
+                try:
+                    idem_rec.persona_message_id = msg.id
+                    idem_rec.status = msg.status
+                    self.s.commit()
+                except Exception:
+                    self.s.rollback()
         # Lịch sử: 20 message GẦN NHẤT, không phải 20 message đầu tiên
         # (query cũ order ASC + limit 20 sẽ mất hẳn lịch sử gần đây khi
         # thread dài — model không còn thấy lượt vừa rồi để trả lời tiếp).
         history = list(reversed(self.s.execute(
             select(Message).where(Message.thread_id == thread.id)
             .order_by(Message.created_at.desc()).limit(20)).scalars().all()))
-        pending_qs = self.s.execute(
+        # Load cả pending và declined: query cũ chỉ lấy pending rồi
+        # kiểm tra status==declined trong danh sách pending nên
+        # refused_keys luôn rỗng — câu từ chối bị mất khỏi context.
+        all_qs = self.s.execute(
             select(QuestionState).where(
                 QuestionState.thread_id == thread.id,
-                QuestionState.actor_id == req.actor_id,
-                QuestionState.status == "pending")).scalars().all()
+                QuestionState.actor_id == req.actor_id)).scalars().all()
+        pending_qs = [q for q in all_qs if q.status == "pending"]
+        declined_qs = [q for q in all_qs if q.status == "declined"]
+        declined_keys = [q.question_key for q in declined_qs]
         from ..models import CustomerFact
         cust_facts = self.s.execute(
             select(CustomerFact).where(
                 CustomerFact.thread_id == thread.id,
                 CustomerFact.actor_id == req.actor_id,
                 CustomerFact.status == "current")).scalars().all()
-        executor = ToolExecutor(self.s, req.persona_id, thread.id, req.actor_id)
+        executor = ToolExecutor(self.s, req.persona_id, thread.id, req.actor_id,
+                                current_message_id=user_msg.id,
+                                current_user_text=req.text)
         # Lịch sử phải là message thật (user/assistant), không chỉ là text
         # nhét trong system: câu trả lời ngắn, lược bỏ chủ ngữ như
         # "Tiết kiệm thôi" chỉ hiểu được khi model thấy câu hỏi ngay
@@ -204,7 +316,8 @@ class Pipeline:
         messages: list[dict] = [
             {"role": "system",
              "content": _context_block(persona, thread, history, pending_qs,
-                                       cust_facts)},
+                                       cust_facts, actor=actor,
+                                       declined_qs=declined_qs)},
         ]
         for m in history:
             if m.id == user_msg.id:
@@ -221,6 +334,8 @@ class Pipeline:
         usage: dict = {}
         llm_calls = 0
         cost = 0.0
+        cost_unknown_calls = 0
+        http_attempts = 0
         # --- 3. Tool loop (không giữ transaction khi chờ model).
         for _round in range(SETTINGS.max_tool_rounds):
             if llm_calls >= SETTINGS.max_llm_calls_per_turn:
@@ -232,21 +347,48 @@ class Pipeline:
             except Exception as e:
                 stop_reason = f"provider_error: {e}"
                 break
-            if result.usage.get("cost_usd"):
+            # Cost: không coi cost provider không trả về là 0. Ghi rõ
+            # known/unknown; budget tiền chỉ áp khi cost đã biết, còn
+            # budget số call và số HTTP attempt luôn áp.
+            if result.usage.get("cost_usd") is not None:
                 cost += float(result.usage["cost_usd"] or 0)
+            else:
+                cost_unknown_calls += 1
+            if result.usage.get("http_attempts"):
+                http_attempts += int(result.usage["http_attempts"])
             if cost > SETTINGS.max_cost_usd_per_turn:
                 stop_reason = "budget_cost_exceeded"
                 break
+            if http_attempts > SETTINGS.max_llm_calls_per_turn * (
+                    SETTINGS.llm_max_retries + 1):
+                stop_reason = "budget_http_attempts_exceeded"
+                break
             if not result.tool_calls:
-                # Provider trả text thuần: coi như final không claim, để
-                # validator kiểm chứng (không parse regex từ text).
-                final = {"text": result.text, "claims": [],
-                         "goal": "answer_question"}
+                # Protocol: text thuần không qua submit_final_reply thì
+                # KHÔNG được coi là final có claim. Chỉ chấp nhận khi
+                # là xã giao thuần túy (không dữ kiện, không câu hỏi,
+                # không cam kết) — còn lại là lỗi protocol, không gửi.
+                if _is_pure_social(result.text or ""):
+                    final = {"text": result.text, "claims": [],
+                             "goal": "answer_question"}
+                else:
+                    stop_reason = ("protocol_plain_text_no_tool_call: "
+                                   "provider trả text thuần không qua "
+                                   "submit_final_reply, có thể chứa dữ kiện "
+                                   "chưa kiểm chứng")
                 break
             _assign_ids(result.tool_calls)
             _append_assistant(messages, result)
             for tc in result.tool_calls:
                 tool_calls_log.append({"tool": tc.name, "arguments": tc.arguments})
+                if planner is None and tc.name != "plan_turn":
+                    # Protocol: plan_turn phải là tool đầu tiên. Mutation
+                    # hoặc final trước plan đều bị chặn, không thực thi.
+                    _append_tool(messages, tc, {
+                        "tool": tc.name, "status": "UNKNOWN",
+                        "reason": "protocol_plan_turn_first: plan_turn chưa "
+                                  "được gọi, tool này không được thực thi"})
+                    continue
                 if tc.name == "plan_turn":
                     # Normalize TRƯỚC khi validate schema: Luna có thể trả
                     # goal tự do, source="user", type="question"... (trace
@@ -312,15 +454,20 @@ class Pipeline:
             "saved_customer_facts": executor.saved_customer_facts,
             "saved_stories": executor.saved_stories,
             "llm_calls": llm_calls, "cost_usd": round(cost, 6),
+            "cost_known": cost_unknown_calls == 0,
+            "cost_unknown_calls": cost_unknown_calls,
+            "http_attempts": http_attempts,
             "latency_s": round(time.time() - started, 3),
             "provider": type(self.provider).__name__,
         }
         if final is None:
             msg = Message(thread_id=thread.id, role="persona", text="",
-                          status="error", idempotency_key=idempotency_key,
+                          status="error", idempotency_key=None,
                           trace={**trace_base, "error": stop_reason})
             self.s.add(msg)
             self.s.commit()
+            executor.reject_pending()
+            _idem_update(msg)
             return TurnResponse(status="error", thread_id=thread.id,
                                 message_id=msg.id, reply_text=None,
                                 planner=planner.model_dump(),
@@ -333,8 +480,7 @@ class Pipeline:
         opted_out = planner.goal == "stop" or any(
             i.type == "opt_out" for i in planner.intents)
         asked_ai = any(i.type == "ai_identity" for i in planner.intents)
-        refused = [q.question_key for q in pending_qs
-                   if q.status == "declined"]
+        refused = declined_keys
         validator_errors: list[str] = []
         for _repair in range(SETTINGS.max_validator_repairs + 1):
             validator_errors = validate(final, {
@@ -350,6 +496,12 @@ class Pipeline:
             try:
                 result = self.provider.chat(messages, TOOLS)
                 llm_calls += 1
+                if result.usage.get("cost_usd") is not None:
+                    cost += float(result.usage["cost_usd"] or 0)
+                else:
+                    cost_unknown_calls += 1
+                if result.usage.get("http_attempts"):
+                    http_attempts += int(result.usage["http_attempts"])
             except Exception as e:
                 validator_errors.append(f"provider_error_on_repair: {e}")
                 break
@@ -372,39 +524,28 @@ class Pipeline:
             else:
                 break
         goal = final.get("goal", planner.goal)
-        # --- 5. Cập nhật QuestionState.
+        # --- 5. Cập nhật QuestionState: chỉ ANSWERED khi planner nêu key.
+        # Chuyển chủ đề KHÔNG có nghĩa đã trả lời, và KHÔNG tự đổi
+        # pending -> redirected (lỗi cũ làm mất câu hỏi đang chờ).
         self._update_questions(thread.id, req.actor_id, planner, user_msg.id,
                                pending_qs)
-        # Followup mới (nếu có) -> tạo QuestionState pending, trừ khi đã có.
-        # Model có thể trả followup_question mà quên followup_key: trước
-        # đây cả câu hỏi bị rớt luôn, lượt sau context ghi "(không có)"
-        # nên model không biết mình vừa hỏi gì và hỏi lại. Gán key chung
-        # thay vì rớt câu hỏi.
+        # Followup key fallback (không rớt câu hỏi chỉ vì thiếu key).
         if final.get("followup_question") and not final.get("followup_key"):
             final["followup_key"] = "followup_question"
-        if final.get("followup_question") and final.get("followup_key") \
-                and not opted_out and goal != "handoff":
-            exists = self.s.execute(
-                select(QuestionState).where(
-                    QuestionState.thread_id == thread.id,
-                    QuestionState.actor_id == req.actor_id,
-                    QuestionState.question_key == final["followup_key"],
-                    QuestionState.status == "pending")).scalars().first()
-            if not exists:
-                self.s.add(QuestionState(
-                    thread_id=thread.id, actor_id=req.actor_id,
-                    question_key=final["followup_key"],
-                    question_text=final["followup_question"]))
-                self.s.commit()
+        # Followup QuestionState CHỈ được tạo khi delivery thành công
+        # (xem nhánh sent bên dưới). Lượt review/error chưa từng được
+        # gửi cho khách thì không được tính là "đã hỏi".
         # --- 6. Delivery theo goal/status.
         reply_text = final.get("text", "")
         if validator_errors:
             msg = Message(thread_id=thread.id, role="persona", text=reply_text,
-                          status="review", idempotency_key=idempotency_key,
+                          status="review", idempotency_key=None,
                           trace={**trace_base,
                                  "validator_errors": validator_errors})
             self.s.add(msg)
             self.s.commit()
+            executor.reject_pending()
+            _idem_update(msg)
             return TurnResponse(status="review", thread_id=thread.id,
                                 message_id=msg.id, reply_text=reply_text,
                                 planner=planner.model_dump(),
@@ -415,10 +556,12 @@ class Pipeline:
                                 trace=trace_base)
         if goal == "handoff":
             msg = Message(thread_id=thread.id, role="persona", text=reply_text,
-                          status="review", idempotency_key=idempotency_key,
+                          status="review", idempotency_key=None,
                           trace={**trace_base, "handoff": True})
             self.s.add(msg)
             self.s.commit()
+            executor.reject_pending()
+            _idem_update(msg)
             return TurnResponse(status="review", thread_id=thread.id,
                                 message_id=msg.id, reply_text=reply_text,
                                 planner=planner.model_dump(),
@@ -427,7 +570,7 @@ class Pipeline:
                                 saved_stories=executor.saved_stories,
                                 trace=trace_base)
         msg = Message(thread_id=thread.id, role="persona", text=reply_text,
-                      status="draft", idempotency_key=idempotency_key,
+                      status="draft", idempotency_key=None,
                       trace=trace_base)
         self.s.add(msg)
         self.s.commit()
@@ -436,12 +579,43 @@ class Pipeline:
             msg.status = "sent"
             self.s.add(Delivery(message_id=msg.id, sender="fake",
                                 status="sent"))
-            # Chỉ khi gửi thành công mới đánh dấu story đã kể.
+            # Chỉ khi gửi thành công mới activate proposals và đánh dấu
+            # story đã kể. Story được truy xuất lại và claim trong final
+            # cũng được ghi StoryTold, không chỉ story vừa tạo.
+            executor.activate_pending()
             for st in executor.saved_stories:
                 row = self.s.get(PersonaStory, st["event_id"])
                 if row and not row.told_in_message_id:
                     row.told_in_message_id = msg.id
+            for claim in final.get("claims", []) or []:
+                if claim.get("kind") == "story" and claim.get("ref_id"):
+                    st = self.s.get(PersonaStory, claim["ref_id"])
+                    if st is not None:
+                        try:
+                            self.s.add(StoryTold(
+                                event_id=st.event_id,
+                                persona_id=req.persona_id,
+                                actor_id=req.actor_id,
+                                thread_id=thread.id, message_id=msg.id))
+                        except IntegrityError:
+                            self.s.rollback()
+            # Followup chỉ được tạo khi delivery thành công.
+            if final.get("followup_question") and final.get("followup_key") \
+                    and not opted_out and goal != "handoff":
+                exists = self.s.execute(
+                    select(QuestionState).where(
+                        QuestionState.thread_id == thread.id,
+                        QuestionState.actor_id == req.actor_id,
+                        QuestionState.question_key == final["followup_key"],
+                        QuestionState.status == "pending")).scalars().first()
+                if not exists:
+                    self.s.add(QuestionState(
+                        thread_id=thread.id, actor_id=req.actor_id,
+                        question_key=final["followup_key"],
+                        question_text=final["followup_question"],
+                        asked_message_id=msg.id))
             self.s.commit()
+            _idem_update(msg)
             return TurnResponse(status="sent", thread_id=thread.id,
                                 message_id=msg.id, reply_text=reply_text,
                                 planner=planner.model_dump(),
@@ -453,6 +627,8 @@ class Pipeline:
         self.s.add(Delivery(message_id=msg.id, sender="fake",
                             status="failed", error=result.get("error")))
         self.s.commit()
+        executor.reject_pending()
+        _idem_update(msg)
         return TurnResponse(status="error", thread_id=thread.id,
                             message_id=msg.id, reply_text=reply_text,
                             planner=planner.model_dump(),
@@ -464,20 +640,15 @@ class Pipeline:
 
     def _update_questions(self, thread_id, actor_id, planner, user_msg_id,
                           pending_qs):
-        # Chỉ ANSWERED khi planner nêu answered_question_keys; còn lại,
-        # nếu lượt này nói sang chủ đề khác thì redirected, không xóa.
+        # Chỉ ANSWERED khi planner nêu answered_question_keys. Engine
+        # không tự đoán từ keyword đơn lẻ, và không tự đổi pending ->
+        # redirected chỉ vì lượt này nói sang chủ đề khác: câu hỏi cũ
+        # vẫn pending để model quyết định có quay lại hay không, và
+        # không bị mất chỉ vì một lượt chuyển chủ đề.
         answered = set(planner.answered_question_keys or [])
-        # Fake/LLM không nêu key nhưng intent trả lời đúng chủ đề: engine
-        # không tự đoán từ keyword đơn lẻ (§3) — chỉ dùng key planner nêu.
         for q in pending_qs:
             if q.question_key in answered:
                 q.status = "answered"
                 q.answered_by_message_id = user_msg_id
                 q.answer_field = q.question_key
-            else:
-                # Lượt này có nội dung (không phải opt-out) nhưng không
-                # trả lời câu hỏi cũ -> redirected, giữ lại để model quyết
-                # định có quay lại hay không ở lượt sau, không hỏi dồn.
-                if planner.goal != "stop":
-                    q.status = "redirected"
         self.s.commit()

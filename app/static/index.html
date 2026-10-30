@@ -365,7 +365,7 @@ async function sendTurn() {
   const isReplay = d.trace && d.trace.idempotent_replay === true;
   const statusLabel = isReplay ? 'Reply cũ (trùng Idempotency-Key)' : d.status==='sent' ? 'Đã gửi qua FakeSender' : d.status==='review' ? 'Cần review / handoff (chưa gửi)' : 'Lỗi';
   const statusCls = d.status==='sent' ? 'sent' : d.status==='review' ? 'review' : 'error';
-  const replyText = d.reply_text || (d.detail ? 'Lỗi: ' + d.detail : '(không có reply)');
+  const replyText = d.reply_text || (d.validator_errors && d.validator_errors.length ? 'Lỗi: ' + d.validator_errors.join('; ') : (d.detail ? 'Lỗi: ' + d.detail : '(không có reply)'));
   const replayNote = isReplay ? `<p class="meta">⚠️ Đây là reply cũ được trả lại vì trùng Idempotency-Key, KHÔNG phải câu trả lời cho comment mới — comment mới cũng chưa được lưu vào lịch sử. Xóa key và gửi lại để nhận câu mới.</p>` : '';
   chat.innerHTML += `<div class="msg ${cls}"><div class="who">Persona · <span class="status ${statusCls}">${statusLabel}</span></div>${esc(replyText)}${replayNote}
     <details><summary>Trace kỹ thuật (planner, tool, fact/story đã lưu, validator)</summary><pre>${esc(JSON.stringify({planner:d.planner, tool_calls:d.tool_calls, saved_customer_facts:d.saved_customer_facts, saved_stories:d.saved_stories, validator_errors:d.validator_errors, trace:d.trace}, null, 2))}</pre></details></div>`;

@@ -121,6 +121,10 @@ class FakeProvider:
         if _has(t, "muốn mua", "đang tìm hiểu", "cân nhắc", "đang xem xe"):
             add("share_need", norm="quan tâm mua xe (chưa phải giao dịch)")
             needs.add("customer_state")
+            # Fake cũng phải tuân contract claim như Luna: nếu final
+            # sẽ khẳng định mẫu xe persona đang đi thì phải truy xuất
+            # persona fact trước để có ref_id, không khẳng định trần.
+            needs.add("persona_facts")
             ask_followup, followup_purpose = True, "hiểu điểm khách thích ở mẫu xe"
             followup_key = "like_point"
         if _has(t, "muốn đổi xe", "đổi xe"):
@@ -199,7 +203,7 @@ class FakeProvider:
         if any("VALIDATOR_FEEDBACK" in (m.get("content") or "")
                for m in messages if m.get("role") == "user"):
             # Vòng sửa: trả bản an toàn, không claim mới, không hỏi thêm.
-            return ProviderResult(tool_calls=[
+            return ProviderResult(usage={"cost_usd": 0.0, "http_attempts": 0}, tool_calls=[
                 ToolCall("submit_final_reply", {
                     "text": "Mình chia sẻ theo những gì mình đã trải nghiệm thôi, "
                     "còn thông tin nào chưa chắc thì mình không khẳng định nhé.",
@@ -208,7 +212,7 @@ class FakeProvider:
         analysis = self.analyze(user_text, context)
         called = [r.get("tool") for r in tool_results]
         if "plan_turn" not in called:
-            return ProviderResult(tool_calls=[ToolCall("plan_turn", {
+            return ProviderResult(usage={"cost_usd": 0.0, "http_attempts": 0}, tool_calls=[ToolCall("plan_turn", {
                 "intents": analysis["intents"],
                 "pending_questions": [],
                 "answered_question_keys": analysis["answered_question_keys"],
@@ -237,13 +241,13 @@ class FakeProvider:
                     or "Hyundai Creta"
                 calls.append(ToolCall("get_product_facts", {"model": model}))
             calls.append(ToolCall("get_customer_state", {}))
-            return ProviderResult(tool_calls=calls)
+            return ProviderResult(usage={"cost_usd": 0.0, "http_attempts": 0}, tool_calls=calls)
         # Sau retrieval: đề xuất (chỉ khi chưa đề xuất).
         if not any(c.startswith("propose_") for c in called):
             proposals = self._proposals(analysis, tool_results)
             if proposals:
-                return ProviderResult(tool_calls=proposals)
-        return ProviderResult(tool_calls=[
+                return ProviderResult(usage={"cost_usd": 0.0, "http_attempts": 0}, tool_calls=proposals)
+        return ProviderResult(usage={"cost_usd": 0.0, "http_attempts": 0}, tool_calls=[
             ToolCall("submit_final_reply",
                      self._final(analysis, tool_results, context))])
 
@@ -389,12 +393,16 @@ class FakeProvider:
                              "không khẳng định được, bạn hỏi thêm bên bán nhé.")
         if any("quan tâm mua" in i["normalized"] for i in analysis["intents"]):
             if not parts:
-                # Xe persona lấy từ fact đã truy xuất, KHÔNG lấy từ bài viết:
-                # bài viết có thể là xe khác với xe persona đang đi.
-                veh = by_key.get("vehicle_model", {}).get("value") \
-                    or analysis["resolved_reference"].get("resolved_to") \
-                    or "Creta"
-                parts.append(f"Mình đang đi {veh} đó bạn.")
+                # Xe persona lấy từ fact đã truy xuất, KHÔNG lấy từ bài viết
+                # và KHÔNG khẳng định nếu không có fact (uncovered check
+                # sẽ chặn khẳng định không claim).
+                f = by_key.get("vehicle_model")
+                if f:
+                    parts.append(f"Mình đang đi {f['value']} đó bạn.")
+                    claims.append({"kind": "persona", "ref_id": f["id"],
+                                   "value": f["value"]})
+                else:
+                    parts.append("Ừ, mình hiểu ý bạn rồi.")
         proposed_addenda = [r for r in tool_results
                             if r.get("tool") == "propose_addendum"
                             and r.get("status") == "FOUND"]
