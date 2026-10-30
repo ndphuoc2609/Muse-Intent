@@ -144,6 +144,29 @@ trên cả 17 lượt** (trước đó probe 5 lượt đã có 3 lượt review
 
 Transcript đầy đủ: `runs/live_eval_dialogue.json` (kèm theo nhánh).
 
+### Chạy lại live eval từ code trên nhánh (review theo yêu cầu)
+Lần chạy thứ hai, từ fresh clone nhánh, cùng script và budget: 10
+case / 17 lượt, **$0.0179, 15 sent / 2 review**. Hai lượt review đều
+là validator bắt ĐÚNG, không phải chặn nhầm như trước fix:
+- interest_not_transaction: Luna claim product "Hyundai Creta" nhưng
+  lượt đó không có product tool result (`unsourced_claim`). Nội dung
+  reply đúng, chỉ thiếu nguồn claim.
+- color_propose_and_recall lượt 1: Luna nhắc "Hyundai Creta của mình"
+  nhưng không kèm claim vehicle_model (`uncovered` ownership). Lượt 2
+  sau đó sent với cùng nội dung (đủ claim).
+Lần chạy trước 17/17 sent, lần này 15/17: độ biến thiên do Luna đôi
+khi lược claim, không phải regression của nhánh (code đường Luna
+không đổi giữa hai lần chạy). Transcript lần chạy lại:
+`runs/live_eval_dialogue_rerun.json`.
+
+### Sửa thêm trong quá trình review (commit sau a8e34dd)
+Smoke test HTTP phát hiện Fake không nhận diện cách hỏi "Thế màu xe
+bác là gì nhỉ?" (pattern chỉ có "màu gì"/"xe màu", thiếu "màu xe") nên
+trả câu xã giao thay vì màu canon — lỗi ở test double, không phải
+engine (canon trắng đã active đúng, Luna live nhớ đúng). Đã thêm
+pattern "màu xe" vào Fake; suite vẫn 93 passed, smoke kiểm tra lại:
+hỏi lại màu trả đúng "trắng".
+
 ## Trước / sau (Fake + live, tóm tắt)
 
 - Trước (live 30/10): hỏi xe + thời điểm mua, hỏi màu xe (2 lượt) đều
