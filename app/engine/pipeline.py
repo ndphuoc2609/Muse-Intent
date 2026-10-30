@@ -81,7 +81,7 @@ def _request_hash(thread_id: str, actor_id: str, text: str) -> str:
 
 
 def _context_block(persona, thread, history, pending_qs, customer_facts,
-                   actor=None, declined_qs=None):
+                   actor=None, declined_qs=None, answered_qs=None):
     lines = [
         f"Persona: {persona.display_name}, {persona.age or ''} tuổi, "
         f"khu vực {persona.region}. Phong cách: {persona.style}",
@@ -91,6 +91,14 @@ def _context_block(persona, thread, history, pending_qs, customer_facts,
         f"({actor.display_name if actor else ''})",
         "Câu hỏi đang chờ của actor hiện tại: " + (", ".join(
             f"{q.question_key} ({q.question_text})" for q in pending_qs)
+            or "(không có)"),
+        # Câu hỏi ĐÃ TRẢ LỜI: trước đây context chỉ có pending + declined,
+        # nên model không thấy một câu hỏi đã xong và dễ hỏi lại nó ở
+        # lượt sau. Hiện rõ để model biết không hỏi lại, chỉ dùng đáp
+        # án đó khi liên quan.
+        "Câu hỏi actor hiện tại ĐÃ TRẢ LỜI (đừng hỏi lại, dùng đáp án "
+        "khi liên quan): " + (", ".join(
+            f"{q.question_key} ({q.question_text})" for q in (answered_qs or []))
             or "(không có)"),
         "Câu hỏi actor hiện tại đã từ chối (KHÔNG hỏi lại): " + (", ".join(
             f"{q.question_key} ({q.question_text})" for q in (declined_qs or []))
@@ -296,6 +304,7 @@ class Pipeline:
                 QuestionState.actor_id == req.actor_id)).scalars().all()
         pending_qs = [q for q in all_qs if q.status == "pending"]
         declined_qs = [q for q in all_qs if q.status == "declined"]
+        answered_qs = [q for q in all_qs if q.status == "answered"]
         declined_keys = [q.question_key for q in declined_qs]
         from ..models import CustomerFact
         cust_facts = self.s.execute(
@@ -334,7 +343,8 @@ class Pipeline:
                         [], [], _cust_state_text,
                         _context_block(persona, thread, history, pending_qs,
                                        cust_facts, actor=actor,
-                                       declined_qs=declined_qs))
+                                       declined_qs=declined_qs,
+                                       answered_qs=answered_qs))
         messages: list[dict] = [
             {"role": "system", "content": _rp["text"]},
         ]
@@ -575,9 +585,19 @@ class Pipeline:
                 break
             if _repair == SETTINGS.max_validator_repairs:
                 break
+            # Repair phải GIỮ NGUYÊN ý định trả lời: bản sửa chỉ sửa
+            # đúng lỗi validator nêu (thường là claim value chưa đúng
+            # giá trị chuẩn đã nêu trong lỗi), không xóa claim, không
+            # đổi chủ đề, không thay bằng câu chung chung an toàn.
+            # Lỗi cũ ("không thêm claim mới" mà không đưa lại bản gốc)
+            # khiến model/Fake trả câu chung chung làm mất câu trả lời.
             messages.append({"role": "user", "content":
                 "VALIDATOR_FEEDBACK: " + "; ".join(validator_errors) +
-                " Hãy sửa reply theo đúng lỗi trên, không thêm claim mới."})
+                " Bản reply gốc cần sửa (GIỮ NGUYÊN ý này, chỉ sửa đúng "
+                "lỗi trên): " + (final.get("text") or "") +
+                " Nếu lỗi nêu claim khác fact, sửa claim value thành "
+                "đúng giá trị chuẩn trong lỗi. Không xóa claim, không "
+                "đổi chủ đề, không thay bằng câu chung chung."})
             try:
                 result = self.provider.chat(messages, TOOLS)
                 llm_calls += 1

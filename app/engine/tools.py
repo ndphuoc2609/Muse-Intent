@@ -75,6 +75,7 @@ class ToolExecutor:
         self.pending_story_ids: list[str] = []
         self.pending_addendum_ids: list[str] = []
         self.pending_customer_fact_ids: list[str] = []
+        self.correction_customer_fact_ids: set[str] = set()
         self.pending_tag_assignment_ids: list[str] = []
 
     def activate_pending(self) -> None:
@@ -106,6 +107,13 @@ class ToolExecutor:
                 st.version += n
         # Customer facts: supersede đúng subject+predicate+relation
         # (bố vs mẹ khác relation thì KHÔNG ghi đè nhau), rồi current.
+        # Ngoại lệ duy nhất: fact được model đánh dấu correction=true
+        # (khách đính chính: "à không, mua cho mình" sau "mua cho bố")
+        # thì supersede mọi fact current cùng predicate của actor đó,
+        # dù khác subject/relation — nếu không, DB sẽ có hai
+        # intended_user current mâu thuẫn và lượt sau không biết dùng
+        # cái nào. Không tự suy correction từ keyword: model phải khai
+        # báo rõ qua tool arg, engine chỉ thực thi.
         for fid in self.pending_customer_fact_ids:
             row = self.s.get(_CF, fid)
             if row is None or row.status != "pending":
@@ -113,11 +121,16 @@ class ToolExecutor:
             old_q = select(_CF).where(
                 _CF.thread_id == self.thread_id,
                 _CF.actor_id == self.actor_id,
-                _CF.subject == row.subject,
                 _CF.predicate == row.predicate,
                 _CF.status == "current")
+            is_correction = fid in getattr(
+                self, "correction_customer_fact_ids", set())
+            if not is_correction:
+                old_q = old_q.where(_CF.subject == row.subject)
             for o in self.s.execute(old_q).scalars().all():
-                if (o.relation or "") == (row.relation or "") and o.id != row.id:
+                if o.id != row.id and (
+                        is_correction
+                        or (o.relation or "") == (row.relation or "")):
                     o.status = "corrected"
             row.status = "current"
         self.s.commit()
@@ -507,6 +520,8 @@ class ToolExecutor:
         self.s.add(row)
         self.s.commit()
         self.pending_customer_fact_ids.append(row.id)
+        if args.get("correction"):
+            self.correction_customer_fact_ids.add(row.id)
         item = {"id": row.id, "subject": row.subject,
                 "relation": row.relation, "predicate": row.predicate,
                 "value_normalized": row.value_normalized,

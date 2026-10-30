@@ -145,7 +145,12 @@ TOOLS = [
             "evidence và supersede bản cũ trước khi lưu. need_kind phân "
             "biệt explicit/preference/concern/constraint/intended_user/"
             "usage_context/hypothesis/declined/opt_out; hypothesis không "
-            "được nâng thành fact. certainty: high/medium/low.",
+            "được nâng thành fact. certainty: high/medium/low. Khi khách "
+            "ĐÍNH CHÍNH một thông tin cũ (VD 'à không, mua cho mình' sau "
+            "'mua cho bố'): đặt correction=true để fact cũ cùng predicate "
+            "bị supersede dù khác subject/relation; không đặt khi khách "
+            "chỉ bổ sung thêm (VD 'mua cho bố và cho mẹ' thì cả hai cùng "
+            "tồn tại).",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -159,6 +164,7 @@ TOOLS = [
                     "confidence": {"type": "number"},
                     "need_kind": {"type": "string"},
                     "certainty": {"type": "string"},
+                    "correction": {"type": "boolean"},
                 },
                 "required": ["subject", "predicate", "value_raw", "evidence"],
             },
@@ -222,7 +228,9 @@ TOOLS = [
         "function": {
             "name": "submit_final_reply",
             "description": "Trả lời cuối cùng. Mọi claim có dữ kiện phải kèm ref_id "
-            "đã được tool trả về trong lượt này.",
+            "đã được tool trả về trong lượt này. Claim value phải là "
+            "giá trị chuẩn ngắn gọn copy từ tool result (VD 'Hyundai "
+            "Creta', 'Trắng'), không viết thành câu.",
             "parameters": {
                 "type": "object",
                 "properties": {

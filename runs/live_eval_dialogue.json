@@ -1,0 +1,365 @@
+{
+  "mode": "live_openrouter",
+  "budget_usd": 1.0,
+  "total_known_cost_usd": 0.018164,
+  "rows": [
+    {
+      "case": "two_facts_one_turn",
+      "turns": [
+        {
+          "input": "Bác đang đi xe gì và mua lúc nào?",
+          "status": "sent",
+          "reply": "Mình đang đi Hyundai Creta, mua vào tháng 3/2024 bạn nhé.",
+          "planner_goal": "answer_question",
+          "resolved_to": null,
+          "latency_s": 13.775,
+          "cost_usd": 0.001004,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": []
+        }
+      ]
+    },
+    {
+      "case": "interest_not_transaction",
+      "turns": [
+        {
+          "input": "Tôi cũng muốn mua một chiếc như vậy.",
+          "status": "sent",
+          "reply": "À, bạn cũng đang nhắm Hyundai Creta à? Mình mua chiếc này làm xe đầu đời. Bạn ưu tiên điều gì nhất khi chọn xe?",
+          "planner_goal": "explore_need",
+          "resolved_to": null,
+          "latency_s": 16.653,
+          "cost_usd": 0.001279,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": []
+        }
+      ]
+    },
+    {
+      "case": "short_answer_priority",
+      "turns": [
+        {
+          "input": "Tôi cũng muốn mua một chiếc như vậy.",
+          "status": "sent",
+          "reply": "Nghe hay đó! Bạn đang nói tới chiếc trong bài viết hay mẫu xe mình đang đi vậy?",
+          "planner_goal": "explore_need",
+          "resolved_to": null,
+          "latency_s": 10.414,
+          "cost_usd": 0.000393,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": []
+        },
+        {
+          "input": "Tiết kiệm thôi, đang tính kiếm đại lý để xem xe ạ.",
+          "status": "sent",
+          "reply": "Mình ghi nhận bạn ưu tiên tiết kiệm khi chọn xe, và đang tính đi xem xe ở đại lý. Mình chưa rõ bạn muốn xem chiếc Hyundai Creta trong bài hay mẫu xe mình đang đi; bạn đang nói tới chiếc nào vậy?",
+          "planner_goal": "explore_need",
+          "resolved_to": null,
+          "latency_s": 14.561,
+          "cost_usd": 0.001185,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": [
+            {
+              "id": "b8b21346be7b4af59b5f45fa",
+              "subject": "self",
+              "relation": "vehicle_selection",
+              "predicate": "priority",
+              "value_normalized": "Ưu tiên tiết kiệm",
+              "evidence": "Tiết kiệm thôi",
+              "source": "stated",
+              "status": "pending",
+              "message_id": "1ca0cfef566f44ccbbce2808",
+              "need_kind": "preference",
+              "certainty": "high"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "topic_switch_keeps_pending",
+      "turns": [
+        {
+          "input": "Tôi cũng muốn mua một chiếc như vậy.",
+          "status": "sent",
+          "reply": "À, bạn nói “như vậy” là chiếc trong bài viết hay mẫu xe mình đang đi vậy?",
+          "planner_goal": "explore_need",
+          "resolved_to": null,
+          "latency_s": 14.071,
+          "cost_usd": 0.000592,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": [
+            {
+              "id": "22efdd7c5c0a4981936b529f",
+              "subject": "self",
+              "relation": null,
+              "predicate": "purchase_intent",
+              "value_normalized": "Muốn mua xe giống chiếc được nhắc tới; chưa rõ mẫu xe",
+              "evidence": "Tôi cũng muốn mua một chiếc như vậy.",
+              "source": "stated",
+              "status": "pending",
+              "message_id": "f3ebc7c5431649c3b43aa6dd",
+              "need_kind": "intended_user",
+              "certainty": "high"
+            }
+          ]
+        },
+        {
+          "input": "Bác đi xe gì?",
+          "status": "sent",
+          "reply": "Mình đang đi Hyundai Creta bản 1.5 Cao cấp.",
+          "planner_goal": "answer_question",
+          "resolved_to": null,
+          "latency_s": 14.845,
+          "cost_usd": 0.001213,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": []
+        }
+      ]
+    },
+    {
+      "case": "third_party_correction",
+      "turns": [
+        {
+          "input": "Mình mua cho bố.",
+          "status": "sent",
+          "reply": "À, bạn mua cho bố nhé. Vậy nhu cầu sử dụng của bố sẽ là chính; bố thường đi phố hay có hay chạy đường dài không?",
+          "planner_goal": "empathize",
+          "resolved_to": null,
+          "latency_s": 12.575,
+          "cost_usd": 0.001036,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": [
+            {
+              "id": "34b72964b96848b8ab38e404",
+              "subject": "bố của khách",
+              "relation": "người nhận xe",
+              "predicate": "intended_vehicle_user",
+              "value_normalized": "Bố của khách",
+              "evidence": "Mình mua cho bố.",
+              "source": "stated",
+              "status": "pending",
+              "message_id": "ea7cb95ee5ab435482a83cbc",
+              "need_kind": "intended_user",
+              "certainty": "high"
+            }
+          ]
+        },
+        {
+          "input": "À không, mua cho mình.",
+          "status": "sent",
+          "reply": "À, mình hiểu rồi, bạn mua xe cho bản thân chứ không phải cho bố. Bạn chủ yếu định đi phố hay thường chạy đường dài nữa?",
+          "planner_goal": "explore_need",
+          "resolved_to": null,
+          "latency_s": 7.698,
+          "cost_usd": 0.000853,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": [
+            {
+              "id": "fc20e498fb62453dbc886931",
+              "subject": "self",
+              "relation": "intended_vehicle_user",
+              "predicate": "intended_vehicle_user",
+              "value_normalized": "Bản thân khách",
+              "evidence": "À không, mua cho mình.",
+              "source": "stated",
+              "status": "pending",
+              "message_id": "8a87a648f84b420baebe10b3",
+              "need_kind": "intended_user",
+              "certainty": "high"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "browse_only",
+      "turns": [
+        {
+          "input": "Mình chỉ xem thôi.",
+          "status": "sent",
+          "reply": "Oke bạn, cứ xem thong thả nhé. Mình không thúc bạn đâu.",
+          "planner_goal": "stop",
+          "resolved_to": null,
+          "latency_s": 4.164,
+          "cost_usd": 0.000659,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": []
+        }
+      ]
+    },
+    {
+      "case": "partial_answer_missing_product",
+      "turns": [
+        {
+          "input": "Bác đi xe gì và con này giá bao nhiêu?",
+          "status": "sent",
+          "reply": "Mình đi Hyundai Creta. Còn “con này” bạn đang hỏi Santa Fe hay Creta vậy? Mình chưa có giá đã xác minh để báo bạn.",
+          "planner_goal": "answer_question",
+          "resolved_to": "",
+          "latency_s": 12.107,
+          "cost_usd": 0.00117,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": []
+        }
+      ]
+    },
+    {
+      "case": "color_propose_and_recall",
+      "turns": [
+        {
+          "input": "Bác đi xe màu gì thế?",
+          "status": "sent",
+          "reply": "Xe mình màu trắng bạn ạ.",
+          "planner_goal": "answer_question",
+          "resolved_to": null,
+          "latency_s": 11.795,
+          "cost_usd": 0.001003,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": []
+        },
+        {
+          "input": "Thế màu xe bác là gì nhỉ?",
+          "status": "sent",
+          "reply": "Xe mình màu trắng bạn ạ, Creta trắng.",
+          "planner_goal": "answer_question",
+          "resolved_to": null,
+          "latency_s": 12.195,
+          "cost_usd": 0.000991,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": []
+        }
+      ]
+    },
+    {
+      "case": "tucson_vague_buy",
+      "turns": [
+        {
+          "input": "Đi những đâu rồi",
+          "status": "sent",
+          "reply": "Nhà mình từng đưa cả gia đình đi Vũng Tàu cuối tuần, xuất phát từ Quận 7 bằng Tucson. Cả nhà ngồi khá thoải mái, chỉ có lúc tìm chỗ đỗ thì phải tính trước một chút.",
+          "planner_goal": "answer_question",
+          "resolved_to": null,
+          "latency_s": 11.007,
+          "cost_usd": 0.001015,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": []
+        },
+        {
+          "input": "Tôi cũng tính lấy 1 chiếc",
+          "status": "sent",
+          "reply": "À, bạn đang tính lấy một chiếc SUV như Tucson nhà mình hay đang nhắc đến Hyundai Creta trong bài viết vậy?",
+          "planner_goal": "clarify",
+          "resolved_to": "",
+          "latency_s": 6.526,
+          "cost_usd": 0.000793,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": []
+        }
+      ]
+    },
+    {
+      "case": "long_thread_recall",
+      "turns": [
+        {
+          "input": "Chào bạn.",
+          "status": "sent",
+          "reply": "Chào bạn! 😊",
+          "planner_goal": "empathize",
+          "resolved_to": null,
+          "latency_s": 4.276,
+          "cost_usd": 0.000647,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": []
+        },
+        {
+          "input": "Chào bạn.",
+          "status": "sent",
+          "reply": "Chào bạn! 😊",
+          "planner_goal": "empathize",
+          "resolved_to": null,
+          "latency_s": 5.926,
+          "cost_usd": 0.00066,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": []
+        },
+        {
+          "input": "Chào bạn.",
+          "status": "sent",
+          "reply": "Chào bạn! Mình đây 😊",
+          "planner_goal": "answer_question",
+          "resolved_to": null,
+          "latency_s": 5.796,
+          "cost_usd": 0.000662,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": []
+        },
+        {
+          "input": "Chào bạn.",
+          "status": "sent",
+          "reply": "Chào bạn! 😊",
+          "planner_goal": "empathize",
+          "resolved_to": null,
+          "latency_s": 4.308,
+          "cost_usd": 0.000673,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": []
+        },
+        {
+          "input": "Chào bạn.",
+          "status": "sent",
+          "reply": "Chào bạn! Mình đây 😊",
+          "planner_goal": "answer_question",
+          "resolved_to": null,
+          "latency_s": 4.274,
+          "cost_usd": 0.000681,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": []
+        },
+        {
+          "input": "Chào bạn.",
+          "status": "sent",
+          "reply": "Chào bạn! Mình đây 😊",
+          "planner_goal": "answer_question",
+          "resolved_to": null,
+          "latency_s": 4.934,
+          "cost_usd": 0.000677,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": []
+        },
+        {
+          "input": "Bác đi xe gì?",
+          "status": "sent",
+          "reply": "Mình đi Hyundai Creta bạn nhé, bản 1.5 Cao cấp.",
+          "planner_goal": "answer_question",
+          "resolved_to": null,
+          "latency_s": 8.732,
+          "cost_usd": 0.000978,
+          "cost_known": true,
+          "validator_errors": [],
+          "saved_customer_facts": []
+        }
+      ]
+    }
+  ]
+}

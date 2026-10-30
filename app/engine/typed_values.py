@@ -139,12 +139,63 @@ def typed_match(claim_value: str, fact_value: str) -> bool | None:
     return None
 
 
+# Từ đệm mà model hay gắn vào claim value khi diễn đạt tự nhiên
+# ("Đang đi Hyundai Creta", "Xe của mình màu trắng", "Bản 1.5 Cao cấp").
+# Chỉ strip ở ĐẦU claim (và tiểu từ discourse ở CUỐI), rồi mới so chính
+# xác với fact chuẩn — nên các policy chặt vẫn giữ nguyên:
+# - "trắng sữa" không strip được gì ở đầu -> vẫn khác "trắng".
+# - "Creta" không chứa đủ token của fact "Creta 1.5" -> vẫn khác.
+# - Giá trị có kiểu (tiền/ngày/%/km) đã xử lý ở typed_match trước, không
+#   đi qua đường này, nên "5999 triệu" vẫn khác "599 triệu".
+_CLAIM_LEADING_WRAPPERS = {
+    "đang", "đi", "mình", "của", "xe", "màu", "chiếc", "con", "bản",
+    "mẫu", "dòng", "là", "đây", "này", "thì", "mình đang", "nhà mình",
+}
+_CLAIM_TRAILING_PARTICLES = {
+    "nhé", "nha", "đó", "ạ", "thôi", "bạn", "rồi", "đấy",
+}
+
+
+def strip_claim_wrappers(value: str) -> str:
+    """Bỏ tiền tố đệm + hậu tố discourse khỏi claim value tự nhiên."""
+    tokens = _norm(value).split()
+    while tokens and tokens[0] in _CLAIM_LEADING_WRAPPERS:
+        tokens.pop(0)
+    while tokens and tokens[-1] in _CLAIM_TRAILING_PARTICLES:
+        tokens.pop()
+    return " ".join(tokens)
+
+
+def _free_text_matches(claim_value: str, fact_value: str) -> bool:
+    """Claim tự nhiên khớp fact chuẩn khi fact bằng claim sau khi bỏ
+    một tiền tố toàn từ đệm (và hậu tố discourse). Thử MỌI độ dài
+    tiền tố thay vì strip tham lam: "Đây là xe đầu đời" khớp fact
+    "xe đầu đời" ở tiền tố 2 từ (đây, là), chứ không strip luôn "xe"
+    thành "đầu đời" rồi khớp sai. Ngược lại "trắng sữa" không có tiền
+    tố đệm nào nên vẫn khác "trắng", và "Creta" vẫn khác "Creta 1.5"."""
+    tokens = _norm(claim_value).split()
+    while tokens and tokens[-1] in _CLAIM_TRAILING_PARTICLES:
+        tokens.pop()
+    target = _norm(fact_value)
+    prefix_len = 0
+    while prefix_len < len(tokens) and \
+            tokens[prefix_len] in _CLAIM_LEADING_WRAPPERS:
+        prefix_len += 1
+    for k in range(prefix_len + 1):
+        if " ".join(tokens[k:]) == target:
+            return True
+    return False
+
+
 def value_matches(claim_value: str, fact_value: str) -> bool:
-    """So khớp giá trị claim với fact: kiểu trước, chuỗi chính xác sau."""
+    """So khớp giá trị claim với fact: kiểu trước, chuỗi chính xác sau
+    (cho phép claim tự nhiên có thêm từ đệm quanh giá trị chuẩn)."""
     typed = typed_match(claim_value, fact_value)
     if typed is not None:
         return typed
-    return _norm(claim_value) == _norm(fact_value)
+    if _norm(claim_value) == _norm(fact_value):
+        return True
+    return _free_text_matches(claim_value, fact_value)
 
 
 def find_money(text: str) -> list[tuple[str, int]]:

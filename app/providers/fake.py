@@ -153,7 +153,10 @@ class FakeProvider:
         # Câu hỏi cũ được trả lời? Chỉ khi nội dung khớp chủ đề câu hỏi
         # (engine vẫn là bên đánh dấu cuối cùng, §10).
         answered_keys: list[str] = []
-        mm = re.search(r"Câu hỏi đang chờ:\s*([^\n]+)", context or "")
+        # Context engine hiện ghi "Câu hỏi đang chờ của actor hiện tại:"
+        # (regex cũ "Câu hỏi đang chờ:" không còn khớp, khiến answered
+        # keys của Fake luôn rỗng — lỗi stale parse, đã sửa ở đây).
+        mm = re.search(r"Câu hỏi đang chờ[^:]*:\s*([^\n]+)", context or "")
         if mm and "(không có)" not in mm.group(1):
             for part in mm.group(1).split(","):
                 key = part.strip().split(" ")[0]

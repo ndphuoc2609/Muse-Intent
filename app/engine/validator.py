@@ -25,7 +25,7 @@ import re
 from ..config import SETTINGS
 from .typed_values import (
     find_money, parse_dates, parse_distance_km, parse_percent,
-    typed_match, value_matches,
+    strip_claim_wrappers, typed_match, value_matches,
 )
 
 TRANSACTION_PHRASES = [
@@ -112,10 +112,23 @@ def _uncovered_errors(text: str, claims: list[dict], retrieved: dict) -> list[st
                 errors.append(
                     f"uncovered_factual_assertion: ngày/tháng '{raw}' "
                     "không có claim/bằng chứng phù hợp")
-        # Màu xe: "màu X" là khẳng định trực tiếp về màu.
+        # Màu xe: "màu X" là khẳng định trực tiếp về màu. Một claim bao
+        # phủ màu khi: claim đó trỏ tới fact có giá trị đúng màu đó
+        # (ref_id đã được tool trả về), hoặc claim value sau khi bỏ từ
+        # đệm ("Xe của mình màu trắng" -> "trắng") bằng đúng màu đó.
         for m in re.finditer(r"\bmàu\s+(\w+)", sentence, re.IGNORECASE):
             color = _norm(m.group(1))
-            if not any(_norm(c.get("value", "")) == color for c in claims):
+            covered = False
+            for c in claims:
+                if c.get("ref_id") in retrieved:
+                    _k, _v, _meta = retrieved[c["ref_id"]]
+                    if _norm(_v) == color:
+                        covered = True
+                        break
+                if strip_claim_wrappers(c.get("value", "")) == color:
+                    covered = True
+                    break
+            if not covered:
                 errors.append(
                     f"uncovered_factual_assertion: màu xe '{color}' "
                     "không có claim/bằng chứng phù hợp")
