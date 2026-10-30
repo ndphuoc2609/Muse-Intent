@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Persona Dialogue — Sandbox</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:980px;margin:24px auto;padding:0 16px;color:#111}
+h1{font-size:22px} h2{font-size:17px;margin:0 0 8px}
+.warn{background:#fff7cc;border:1px solid #e5c100;padding:10px;border-radius:8px}
+.info{background:#eef4ff;border:1px solid #9db8e8;padding:10px;border-radius:8px}
+.card{border:1px solid #ddd;border-radius:10px;padding:14px;margin:12px 0}
+label{display:block;margin:8px 0 4px;font-weight:600}
+input,select,textarea{width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box}
+button{padding:9px 16px;border-radius:8px;border:0;background:#111;color:#fff;cursor:pointer;margin-top:10px}
+button:disabled{background:#bbb;cursor:not-allowed}
+button.secondary{background:#fff;color:#111;border:1px solid #999}
+.msg{padding:10px;border-radius:8px;margin:8px 0}.user{background:#eef4ff}.persona{background:#eefaf0}
+.review{background:#fff1f1}.error{background:#fde8e8}
+details{margin-top:8px} pre{white-space:pre-wrap;word-break:break-word;background:#f6f6f6;padding:10px;border-radius:6px;font-size:12px}
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;background:#eee;margin-left:6px}
+</style></head><body>
+<h1>Persona Dialogue — Sandbox <span class="badge">PERSONA HƯ CẤU</span></h1>
+<p class="warn">⚠️ Persona là <b>hư cấu</b>. Dữ kiện sản phẩm ở đây là
+<b>dữ liệu mẫu, không phải giá thực tế</b>. “Đã gửi qua FakeSender” khác với
+“Bản nháp” / “Cần review”. Không có tích hợp Facebook/Meta ở giai đoạn này.</p>
+<p class="info" id="providerBox">Đang kiểm tra provider…</p>
+
+<div class="card">
+  <h2>Bước 1 — Chọn persona</h2>
+  <button onclick="seedAndLoad()">Seed persona mẫu (nếu chưa có)</button>
+  <label>Persona</label>
+  <select id="persona"><option value="">— chưa có persona, bấm Seed —</option></select>
+  <button class="secondary" onclick="loadPersonas()">Tải lại danh sách persona</button>
+  <div id="profile"></div>
+</div>
+
+<div class="card">
+  <h2>Bước 2 — Tạo bài viết</h2>
+  <label>Nội dung bài viết</label>
+  <textarea id="post" rows="2">Mình mới lấy Creta đi làm hàng ngày, cuối tuần về quê. Mọi người thấy sao?</textarea>
+  <label>Xe trong bài viết (phân tách bằng dấu phẩy)</label>
+  <input id="vehicles" value="Hyundai Creta">
+  <button id="createBtn" onclick="createPost()">Tạo bài viết</button>
+  <div>Bài viết đã tạo: <code id="thread">— chưa tạo bài —</code></div>
+  <div id="postPreview"></div>
+</div>
+
+<div class="card">
+  <h2>Bước 3 — Bình luận, persona trả lời</h2>
+  <label>Người bình luận</label>
+  <select id="actor">
+    <option value="actor-1">Khách 1</option>
+    <option value="actor-2">Khách 2</option>
+  </select>
+  <label>Comment (nhiều lượt, gửi từng lượt một)</label>
+  <textarea id="comment" rows="3" placeholder="VD: Bác đi xe màu gì thế?" disabled></textarea>
+  <label>Idempotency-Key (tùy chọn; nhập lại key cũ để test gửi lặp)</label>
+  <input id="idem" placeholder="vd: turn-1">
+  <button id="sendBtn" onclick="sendTurn()" disabled>Gửi comment</button>
+  <p id="commentHint">Hãy tạo bài viết ở Bước 2 trước, rồi mới comment được.</p>
+  <div id="chat"></div>
+</div>
+
+<div class="card"><h2>Canonical stories của persona</h2>
+  <button class="secondary" onclick="loadPersonaDetail()">Tải lại stories</button>
+  <div id="stories"></div>
+</div>
+
+<p style="font-size:13px;color:#555">Để Luna thật trả lời thay vì bản mô phỏng:
+đặt <code>LLM_PROVIDER=openrouter</code>, <code>OPENROUTER_API_KEY</code> và
+<code>OPENROUTER_MODEL=openai/gpt-6-luna</code> vào file <code>.env</code> trên
+máy chủ rồi khởi động lại server — không nhập key vào giao diện này, không dán
+key vào chat.</p>
+
+<script>
+let threadId = null;
+let selectedPersona = '';
+async function api(path, opts={}) {
+  const r = await fetch(path, {headers:{'Content-Type':'application/json'}, ...opts});
+  return r.json();
+}
+async function checkProvider() {
+  const h = await api('/health');
+  const box = document.getElementById('providerBox');
+  if (h.provider === 'OpenRouterProvider' || h.openrouter_configured) {
+    box.innerHTML = `Provider hiện tại: <b>Luna qua OpenRouter</b> — model <code>${h.openrouter_model}</code>. Comment sẽ do Luna trả lời qua pipeline.`;
+  } else {
+    box.innerHTML = `Provider hiện tại: <b>Fake (mô phỏng offline)</b> — chưa cấu hình OpenRouter key trong .env, nên reply hiện tại là bản mô phỏng theo cùng contract tool (không phải Luna thật). Xem hướng dẫn cuối trang để bật Luna.`;
+  }
+}
+async function seedAndLoad() {
+  const d = await api('/seed', {method:'POST'});
+  await loadPersonas();
+  document.getElementById('profile').innerHTML = 'Seed: ' + JSON.stringify(d);
+}
+async function loadPersonas() {
+  const list = await api('/personas');
+  const sel = document.getElementById('persona');
+  if (!list.length) { sel.innerHTML = '<option value="">— chưa có persona, bấm Seed —</option>'; return; }
+  sel.innerHTML = list.map(p => `<option value="${p.id}">${p.display_name} — ${p.region} (${p.id})</option>`).join('');
+  selectedPersona = sel.value;
+  loadPersonaDetail();
+}
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'persona') { selectedPersona = e.target.value; loadPersonaDetail(); }
+});
+async function loadPersonaDetail() {
+  const pid = document.getElementById('persona').value;
+  if (!pid) return;
+  const d = await api('/personas/' + pid);
+  if (d.detail) { document.getElementById('profile').innerHTML = d.detail; return; }
+  document.getElementById('profile').innerHTML =
+    `<p><b>${d.display_name}</b>, ${d.age} tuổi, ${d.region} — stance: ${d.stance}</p>` +
+    `<p>Facts: ${d.facts.map(f=>`${f.fact_key}=${f.value} [${f.source}]`).join(' · ')}</p>`;
+  document.getElementById('stories').innerHTML = d.stories.map(s =>
+    `<div><b>${s.title||s.event_id}</b> (v${s.version}, ${s.status})<br>${s.summary}` +
+    (s.addenda.length ? `<br>Addenda: ${s.addenda.join(' | ')}` : '') +
+    ` <button class="secondary" onclick="revoke('${s.event_id}')">Thu hồi</button></div>`).join('') || '(chưa có story)';
+}
+async function revoke(eventId) {
+  const pid = document.getElementById('persona').value;
+  await api(`/personas/${pid}/stories/${eventId}/revoke`, {method:'POST'});
+  loadPersonaDetail();
+}
+async function createPost() {
+  const pid = document.getElementById('persona').value;
+  if (!pid) { alert('Hãy chọn persona ở Bước 1 (bấm Seed nếu chưa có).'); return; }
+  const d = await api('/threads', {method:'POST', body: JSON.stringify({
+    persona_id: pid,
+    post_text: document.getElementById('post').value,
+    post_vehicle_models: document.getElementById('vehicles').value.split(',').map(s=>s.trim()).filter(Boolean),
+  })});
+  if (d.detail) { alert(d.detail); return; }
+  threadId = d.thread_id;
+  document.getElementById('thread').textContent = threadId;
+  document.getElementById('postPreview').innerHTML =
+    `<p><b>Bài viết:</b> ${d.post_text}<br><b>Xe:</b> ${(d.post_vehicle_models||[]).join(', ')}</p>`;
+  document.getElementById('comment').disabled = false;
+  document.getElementById('sendBtn').disabled = false;
+  document.getElementById('commentHint').textContent = 'Đã có bài viết — nhập comment và gửi, persona sẽ trả lời ngay dưới đây.';
+  document.getElementById('chat').innerHTML = '';
+}
+async function sendTurn() {
+  const text = document.getElementById('comment').value.trim();
+  if (!text) return;
+  if (!threadId) { alert('Hãy tạo bài viết ở Bước 2 trước.'); return; }
+  const chat = document.getElementById('chat');
+  const actorName = document.getElementById('actor').selectedOptions[0].text;
+  chat.innerHTML += `<div class="msg user"><b>${actorName}:</b> ${text}</div>`;
+  const pid = document.getElementById('persona').value;
+  const body = {persona_id: pid, thread_id: threadId,
+    post_text: document.getElementById('post').value,
+    post_vehicle_models: document.getElementById('vehicles').value.split(',').map(s=>s.trim()).filter(Boolean),
+    actor_id: document.getElementById('actor').value, text};
+  const headers = {'Content-Type':'application/json'};
+  const idem = document.getElementById('idem').value.trim();
+  if (idem) headers['Idempotency-Key'] = idem;
+  const d = await fetch('/turns', {method:'POST', headers, body: JSON.stringify(body)}).then(r=>r.json());
+  const cls = d.status==='sent' ? 'persona' : d.status==='review' ? 'review' : 'error';
+  const statusLabel = d.status==='sent' ? 'Đã gửi qua FakeSender' : d.status==='review' ? 'Cần review / handoff (chưa gửi)' : d.status==='error' ? 'Lỗi' : 'Bản nháp';
+  const esc = (s) => JSON.stringify(s, null, 2);
+  chat.innerHTML += `<div class="msg ${cls}"><b>Persona:</b> ${d.reply_text||'(không có reply)'} <span class="badge">${statusLabel}</span>
+    <details><summary>Trace kỹ thuật (planner, tool, fact/story đã lưu, validator)</summary><pre>${esc({planner:d.planner, tool_calls:d.tool_calls, saved_customer_facts:d.saved_customer_facts, saved_stories:d.saved_stories, validator_errors:d.validator_errors, trace:d.trace})}</pre></details></div>`;
+  document.getElementById('comment').value = '';
+  loadPersonaDetail();
+}
+checkProvider(); loadPersonas();
+</script></body></html>

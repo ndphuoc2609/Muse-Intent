@@ -1,0 +1,24 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: persona
+      POSTGRES_PASSWORD: persona
+      POSTGRES_DB: persona_dialogue
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  app:
+    build: .
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql://persona:persona@db:5432/persona_dialogue
+      LLM_PROVIDER: ${LLM_PROVIDER:-fake}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openai/gpt-6-luna}
+    ports:
+      - "8000:8000"
+volumes:
+  pgdata:

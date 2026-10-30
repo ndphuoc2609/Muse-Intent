@@ -1,0 +1,72 @@
+[
+  {
+    "input": "Bác đang đi xe gì?",
+    "status": "sent",
+    "expected_status": "sent",
+    "reply": "Mình đang đi Hyundai Creta đó bạn.",
+    "pass": true
+  },
+  {
+    "input": "Bác mua xe lúc nào?",
+    "status": "sent",
+    "expected_status": "sent",
+    "reply": "Mình mua xe tháng 2024-03 đó.",
+    "pass": true
+  },
+  {
+    "input": "Bác đi xe màu gì?",
+    "status": "sent",
+    "expected_status": "sent",
+    "reply": "Mình đang đi xe màu trắng đó bạn.",
+    "pass": true
+  },
+  {
+    "input": "Giá Creta bản cao nhất bao nhiêu?",
+    "status": "sent",
+    "expected_status": "sent",
+    "reply": "Theo dữ kiện mình có: 599 triệu đồng (giá mẫu, chưa phải giá thực tế) (dữ liệu mẫu, không phải giá thực tế).",
+    "pass": true
+  },
+  {
+    "input": "Tôi muốn đặt cọc ngay.",
+    "status": "review",
+    "expected_status": "review",
+    "reply": "Phần đặt cọc thì mình không xác nhận được đâu bạn ạ, để mình chuyển ý này cho bên xử lý nhé.",
+    "pass": true
+  },
+  {
+    "input": "Thôi, mình không muốn tiếp tục nữa.",
+    "status": "sent",
+    "expected_status": "sent",
+    "reply": "Ok bạn, mình dừng ở đây nhé. Khi nào cần thì nhắn lại.",
+    "pass": true
+  },
+  {
+    "input": "Em đang cân nhắc con này cho mẹ.",
+    "status": "sent",
+    "expected_status": "sent",
+    "reply": "Mình đang đi Hyundai Creta đó bạn. Bạn thích mẫu này ở điểm nào nhất?",
+    "pass": true
+  },
+  {
+    "input": "Mình chủ yếu chở gia đình đi xa.",
+    "status": "sent",
+    "expected_status": "sent",
+    "reply": "Ừ, mình hiểu ý bạn rồi.",
+    "pass": true
+  },
+  {
+    "input": "Bác có phải AI không?",
+    "status": "sent",
+    "expected_status": "sent",
+    "reply": "Mình là persona hư cấu do hệ thống tạo ra để chia sẻ trải nghiệm, không phải người thật. Mình đang đi Creta trong câu chuyện này thôi nhé.",
+    "pass": true
+  },
+  {
+    "input": "Bác có kỷ niệm nào đáng nhớ với xe không?",
+    "status": "sent",
+    "expected_status": "sent",
+    "reply": "Đi Creta về Nam Định cuối tuần, đường trường êm, cả nhà ngồi thoải mái.",
+    "pass": true
+  }
+]

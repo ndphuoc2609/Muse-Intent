@@ -1,0 +1,901 @@
+[
+  {
+    "label": "Hỏi màu xe",
+    "input": "Bác đi xe màu gì thế?",
+    "status": "sent",
+    "planner": {
+      "intents": [
+        {
+          "type": "ask_persona",
+          "subject": "persona",
+          "relation": null,
+          "normalized": "hỏi màu xe của persona",
+          "evidence": "Bác đi xe màu gì thế?",
+          "source": "stated",
+          "confidence": 0.85
+        }
+      ],
+      "pending_questions": [],
+      "answered_question_keys": [],
+      "known_customer": {},
+      "known_persona": {},
+      "data_needs": [
+        "persona_facts"
+      ],
+      "goal": "answer_question",
+      "response_direction": {
+        "answer_first": true,
+        "ask_followup": false,
+        "followup_purpose": null,
+        "followup_key": null
+      },
+      "resolved_reference": {}
+    },
+    "tool_calls": [
+      {
+        "tool": "plan_turn",
+        "arguments": {
+          "intents": [
+            {
+              "type": "ask_persona",
+              "subject": "persona",
+              "relation": null,
+              "normalized": "hỏi màu xe của persona",
+              "evidence": "Bác đi xe màu gì thế?",
+              "source": "stated",
+              "confidence": 0.85
+            }
+          ],
+          "pending_questions": [],
+          "answered_question_keys": [],
+          "known_customer": {},
+          "known_persona": {},
+          "data_needs": [
+            "persona_facts"
+          ],
+          "goal": "answer_question",
+          "response_direction": {
+            "answer_first": true,
+            "ask_followup": false,
+            "followup_purpose": null,
+            "followup_key": null
+          },
+          "resolved_reference": {}
+        }
+      },
+      {
+        "tool": "get_persona_facts",
+        "arguments": {}
+      },
+      {
+        "tool": "get_customer_state",
+        "arguments": {}
+      },
+      {
+        "tool": "propose_persona_fact",
+        "arguments": {
+          "fact_key": "vehicle_color",
+          "value": "trắng",
+          "evidence": "khách hỏi màu xe, fact chưa có, đề xuất theo policy",
+          "source": "generated"
+        }
+      },
+      {
+        "tool": "submit_final_reply",
+        "arguments": {
+          "text": "Mình đang đi xe màu trắng đó bạn.",
+          "claims": [
+            {
+              "kind": "persona",
+              "ref_id": "17b6607821f34882ba2819b4",
+              "value": "trắng"
+            }
+          ],
+          "goal": "answer_question"
+        }
+      }
+    ],
+    "saved_customer_facts": [],
+    "saved_stories": [],
+    "validator_errors": [],
+    "reply": "Mình đang đi xe màu trắng đó bạn."
+  },
+  {
+    "label": "Quan tâm mua xe",
+    "input": "Tôi cũng muốn mua một chiếc như vậy.",
+    "status": "sent",
+    "planner": {
+      "intents": [
+        {
+          "type": "share_need",
+          "subject": "self",
+          "relation": null,
+          "normalized": "quan tâm mua xe (chưa phải giao dịch)",
+          "evidence": "Tôi cũng muốn mua một chiếc như vậy.",
+          "source": "stated",
+          "confidence": 0.85
+        }
+      ],
+      "pending_questions": [],
+      "answered_question_keys": [],
+      "known_customer": {},
+      "known_persona": {},
+      "data_needs": [
+        "customer_state"
+      ],
+      "goal": "answer_question",
+      "response_direction": {
+        "answer_first": true,
+        "ask_followup": true,
+        "followup_purpose": "hiểu điểm khách thích ở mẫu xe",
+        "followup_key": "like_point"
+      },
+      "resolved_reference": {
+        "text": "xe này",
+        "resolved_to": "Hyundai Creta",
+        "source": "inferred_context",
+        "confidence": 0.7
+      }
+    },
+    "tool_calls": [
+      {
+        "tool": "plan_turn",
+        "arguments": {
+          "intents": [
+            {
+              "type": "share_need",
+              "subject": "self",
+              "relation": null,
+              "normalized": "quan tâm mua xe (chưa phải giao dịch)",
+              "evidence": "Tôi cũng muốn mua một chiếc như vậy.",
+              "source": "stated",
+              "confidence": 0.85
+            }
+          ],
+          "pending_questions": [],
+          "answered_question_keys": [],
+          "known_customer": {},
+          "known_persona": {},
+          "data_needs": [
+            "customer_state"
+          ],
+          "goal": "answer_question",
+          "response_direction": {
+            "answer_first": true,
+            "ask_followup": true,
+            "followup_purpose": "hiểu điểm khách thích ở mẫu xe",
+            "followup_key": "like_point"
+          },
+          "resolved_reference": {
+            "text": "xe này",
+            "resolved_to": "Hyundai Creta",
+            "source": "inferred_context",
+            "confidence": 0.7
+          }
+        }
+      },
+      {
+        "tool": "get_customer_state",
+        "arguments": {}
+      },
+      {
+        "tool": "propose_customer_fact",
+        "arguments": {
+          "subject": "self",
+          "relation": null,
+          "predicate": "buying_interest",
+          "value_raw": "quan tâm mua xe (chưa phải giao dịch)",
+          "evidence": "Tôi cũng muốn mua một chiếc như vậy.",
+          "source": "stated",
+          "confidence": 0.85
+        }
+      },
+      {
+        "tool": "submit_final_reply",
+        "arguments": {
+          "text": "Mình đang đi Hyundai Creta đó bạn. Bạn thích mẫu này ở điểm nào nhất?",
+          "claims": [],
+          "goal": "answer_question",
+          "followup_question": "Bạn thích mẫu này ở điểm nào nhất?",
+          "followup_key": "like_point"
+        }
+      }
+    ],
+    "saved_customer_facts": [
+      {
+        "id": "402b521d1ca6433f8169d887",
+        "subject": "self",
+        "relation": null,
+        "predicate": "buying_interest",
+        "value_normalized": "quan tâm mua xe (chưa phải giao dịch)",
+        "evidence": "Tôi cũng muốn mua một chiếc như vậy.",
+        "source": "stated"
+      }
+    ],
+    "saved_stories": [],
+    "validator_errors": [],
+    "reply": "Mình đang đi Hyundai Creta đó bạn. Bạn thích mẫu này ở điểm nào nhất?"
+  },
+  {
+    "label": "Hỏi hộ người khác",
+    "input": "Em đang cân nhắc con này cho bố.",
+    "status": "sent",
+    "planner": {
+      "intents": [
+        {
+          "type": "third_party",
+          "subject": "third_person",
+          "relation": "bố",
+          "normalized": "người dùng xe dự kiến là bố",
+          "evidence": "Em đang cân nhắc con này cho bố.",
+          "source": "stated",
+          "confidence": 0.85
+        },
+        {
+          "type": "share_need",
+          "subject": "self",
+          "relation": null,
+          "normalized": "quan tâm mua xe (chưa phải giao dịch)",
+          "evidence": "Em đang cân nhắc con này cho bố.",
+          "source": "stated",
+          "confidence": 0.85
+        }
+      ],
+      "pending_questions": [],
+      "answered_question_keys": [
+        "like_point"
+      ],
+      "known_customer": {},
+      "known_persona": {},
+      "data_needs": [
+        "customer_state"
+      ],
+      "goal": "answer_question",
+      "response_direction": {
+        "answer_first": true,
+        "ask_followup": true,
+        "followup_purpose": "hiểu điểm khách thích ở mẫu xe",
+        "followup_key": "like_point"
+      },
+      "resolved_reference": {
+        "text": "xe này",
+        "resolved_to": "Hyundai Creta",
+        "source": "inferred_context",
+        "confidence": 0.7
+      }
+    },
+    "tool_calls": [
+      {
+        "tool": "plan_turn",
+        "arguments": {
+          "intents": [
+            {
+              "type": "third_party",
+              "subject": "third_person",
+              "relation": "bố",
+              "normalized": "người dùng xe dự kiến là bố",
+              "evidence": "Em đang cân nhắc con này cho bố.",
+              "source": "stated",
+              "confidence": 0.85
+            },
+            {
+              "type": "share_need",
+              "subject": "self",
+              "relation": null,
+              "normalized": "quan tâm mua xe (chưa phải giao dịch)",
+              "evidence": "Em đang cân nhắc con này cho bố.",
+              "source": "stated",
+              "confidence": 0.85
+            }
+          ],
+          "pending_questions": [],
+          "answered_question_keys": [
+            "like_point"
+          ],
+          "known_customer": {},
+          "known_persona": {},
+          "data_needs": [
+            "customer_state"
+          ],
+          "goal": "answer_question",
+          "response_direction": {
+            "answer_first": true,
+            "ask_followup": true,
+            "followup_purpose": "hiểu điểm khách thích ở mẫu xe",
+            "followup_key": "like_point"
+          },
+          "resolved_reference": {
+            "text": "xe này",
+            "resolved_to": "Hyundai Creta",
+            "source": "inferred_context",
+            "confidence": 0.7
+          }
+        }
+      },
+      {
+        "tool": "get_customer_state",
+        "arguments": {}
+      },
+      {
+        "tool": "propose_customer_fact",
+        "arguments": {
+          "subject": "third_person",
+          "relation": "bố",
+          "predicate": "intended_user",
+          "value_raw": "bố",
+          "evidence": "Em đang cân nhắc con này cho bố.",
+          "source": "stated",
+          "confidence": 0.9
+        }
+      },
+      {
+        "tool": "propose_customer_fact",
+        "arguments": {
+          "subject": "self",
+          "relation": null,
+          "predicate": "buying_interest",
+          "value_raw": "quan tâm mua xe (chưa phải giao dịch)",
+          "evidence": "Em đang cân nhắc con này cho bố.",
+          "source": "stated",
+          "confidence": 0.85
+        }
+      },
+      {
+        "tool": "submit_final_reply",
+        "arguments": {
+          "text": "Mình đang đi Hyundai Creta đó bạn.",
+          "claims": [],
+          "goal": "answer_question"
+        }
+      }
+    ],
+    "saved_customer_facts": [
+      {
+        "id": "dedf1fb2859c46da9c1b0355",
+        "subject": "third_person",
+        "relation": "bố",
+        "predicate": "intended_user",
+        "value_normalized": "bố",
+        "evidence": "Em đang cân nhắc con này cho bố.",
+        "source": "stated"
+      },
+      {
+        "id": "dcdffe3668124db7a2b81098",
+        "subject": "self",
+        "relation": null,
+        "predicate": "buying_interest",
+        "value_normalized": "quan tâm mua xe (chưa phải giao dịch)",
+        "evidence": "Em đang cân nhắc con này cho bố.",
+        "source": "stated"
+      }
+    ],
+    "saved_stories": [],
+    "validator_errors": [],
+    "reply": "Mình đang đi Hyundai Creta đó bạn."
+  },
+  {
+    "label": "Tạo story (hỏi kỷ niệm)",
+    "input": "Bác có kỷ niệm nào đáng nhớ với xe không?",
+    "status": "sent",
+    "planner": {
+      "intents": [
+        {
+          "type": "ask_persona",
+          "subject": "persona",
+          "relation": null,
+          "normalized": "hỏi kỷ niệm/chuyến đi",
+          "evidence": "Bác có kỷ niệm nào đáng nhớ với xe không?",
+          "source": "stated",
+          "confidence": 0.85
+        }
+      ],
+      "pending_questions": [],
+      "answered_question_keys": [],
+      "known_customer": {},
+      "known_persona": {},
+      "data_needs": [
+        "persona_stories"
+      ],
+      "goal": "answer_question",
+      "response_direction": {
+        "answer_first": true,
+        "ask_followup": false,
+        "followup_purpose": null,
+        "followup_key": null
+      },
+      "resolved_reference": {}
+    },
+    "tool_calls": [
+      {
+        "tool": "plan_turn",
+        "arguments": {
+          "intents": [
+            {
+              "type": "ask_persona",
+              "subject": "persona",
+              "relation": null,
+              "normalized": "hỏi kỷ niệm/chuyến đi",
+              "evidence": "Bác có kỷ niệm nào đáng nhớ với xe không?",
+              "source": "stated",
+              "confidence": 0.85
+            }
+          ],
+          "pending_questions": [],
+          "answered_question_keys": [],
+          "known_customer": {},
+          "known_persona": {},
+          "data_needs": [
+            "persona_stories"
+          ],
+          "goal": "answer_question",
+          "response_direction": {
+            "answer_first": true,
+            "ask_followup": false,
+            "followup_purpose": null,
+            "followup_key": null
+          },
+          "resolved_reference": {}
+        }
+      },
+      {
+        "tool": "get_persona_stories",
+        "arguments": {}
+      },
+      {
+        "tool": "get_customer_state",
+        "arguments": {}
+      },
+      {
+        "tool": "propose_story",
+        "arguments": {
+          "title": "Chuyến về Nam Định cuối tuần",
+          "summary": "Đi Creta về Nam Định cuối tuần, đường trường êm, cả nhà ngồi thoải mái.",
+          "body": "Cuối tuần mình lái Creta từ Cầu Giấy về Nam Định thăm nhà. Đường trường xe chạy êm, người ngồi sau không bị mệt, cốp đủ đồ cho cả nhà.",
+          "event_type": "trip",
+          "event_date": null,
+          "event_date_precision": "unknown",
+          "entities": {
+            "vehicle": "Hyundai Creta",
+            "places": [
+              "Cầu Giấy",
+              "Nam Định"
+            ],
+            "persons": []
+          }
+        }
+      },
+      {
+        "tool": "submit_final_reply",
+        "arguments": {
+          "text": "Đi Creta về Nam Định cuối tuần, đường trường êm, cả nhà ngồi thoải mái.",
+          "claims": [
+            {
+              "kind": "story",
+              "ref_id": "evt_b4a13bc1f92d43fc",
+              "value": "Đi Creta về Nam Định cuối tuần, đường trường êm, cả nhà ngồi thoải mái."
+            }
+          ],
+          "goal": "answer_question"
+        }
+      }
+    ],
+    "saved_customer_facts": [],
+    "saved_stories": [
+      {
+        "event_id": "evt_b4a13bc1f92d43fc",
+        "title": "Chuyến về Nam Định cuối tuần",
+        "summary": "Đi Creta về Nam Định cuối tuần, đường trường êm, cả nhà ngồi thoải mái.",
+        "body": "Cuối tuần mình lái Creta từ Cầu Giấy về Nam Định thăm nhà. Đường trường xe chạy êm, người ngồi sau không bị mệt, cốp đủ đồ cho cả nhà.",
+        "addenda": [],
+        "entities": {
+          "vehicle": "Hyundai Creta",
+          "places": [
+            "Cầu Giấy",
+            "Nam Định"
+          ],
+          "persons": []
+        },
+        "event_type": "trip",
+        "event_date": null,
+        "event_date_precision": "unknown",
+        "fictional_generated": true,
+        "status": "active",
+        "version": 1
+      }
+    ],
+    "validator_errors": [],
+    "reply": "Đi Creta về Nam Định cuối tuần, đường trường êm, cả nhà ngồi thoải mái."
+  },
+  {
+    "label": "Truy xuất story cũ",
+    "input": "Kể lại chuyến đi đó đi bác.",
+    "status": "sent",
+    "planner": {
+      "intents": [
+        {
+          "type": "ask_persona",
+          "subject": "persona",
+          "relation": null,
+          "normalized": "hỏi kỷ niệm/chuyến đi",
+          "evidence": "Kể lại chuyến đi đó đi bác.",
+          "source": "stated",
+          "confidence": 0.85
+        }
+      ],
+      "pending_questions": [],
+      "answered_question_keys": [],
+      "known_customer": {},
+      "known_persona": {},
+      "data_needs": [
+        "persona_stories"
+      ],
+      "goal": "answer_question",
+      "response_direction": {
+        "answer_first": true,
+        "ask_followup": false,
+        "followup_purpose": null,
+        "followup_key": null
+      },
+      "resolved_reference": {}
+    },
+    "tool_calls": [
+      {
+        "tool": "plan_turn",
+        "arguments": {
+          "intents": [
+            {
+              "type": "ask_persona",
+              "subject": "persona",
+              "relation": null,
+              "normalized": "hỏi kỷ niệm/chuyến đi",
+              "evidence": "Kể lại chuyến đi đó đi bác.",
+              "source": "stated",
+              "confidence": 0.85
+            }
+          ],
+          "pending_questions": [],
+          "answered_question_keys": [],
+          "known_customer": {},
+          "known_persona": {},
+          "data_needs": [
+            "persona_stories"
+          ],
+          "goal": "answer_question",
+          "response_direction": {
+            "answer_first": true,
+            "ask_followup": false,
+            "followup_purpose": null,
+            "followup_key": null
+          },
+          "resolved_reference": {}
+        }
+      },
+      {
+        "tool": "get_persona_stories",
+        "arguments": {}
+      },
+      {
+        "tool": "get_customer_state",
+        "arguments": {}
+      },
+      {
+        "tool": "submit_final_reply",
+        "arguments": {
+          "text": "Đi Creta về Nam Định cuối tuần, đường trường êm, cả nhà ngồi thoải mái.",
+          "claims": [
+            {
+              "kind": "story",
+              "ref_id": "evt_b4a13bc1f92d43fc",
+              "value": "Đi Creta về Nam Định cuối tuần, đường trường êm, cả nhà ngồi thoải mái."
+            }
+          ],
+          "goal": "answer_question"
+        }
+      }
+    ],
+    "saved_customer_facts": [],
+    "saved_stories": [],
+    "validator_errors": [],
+    "reply": "Đi Creta về Nam Định cuối tuần, đường trường êm, cả nhà ngồi thoải mái."
+  },
+  {
+    "label": "Bổ sung addendum",
+    "input": "Đi cùng ai thế bác?",
+    "status": "sent",
+    "planner": {
+      "intents": [
+        {
+          "type": "ask_persona",
+          "subject": "persona",
+          "relation": null,
+          "normalized": "hỏi người đi cùng trong story",
+          "evidence": "Đi cùng ai thế bác?",
+          "source": "stated",
+          "confidence": 0.85
+        }
+      ],
+      "pending_questions": [],
+      "answered_question_keys": [],
+      "known_customer": {},
+      "known_persona": {},
+      "data_needs": [
+        "persona_stories"
+      ],
+      "goal": "answer_question",
+      "response_direction": {
+        "answer_first": true,
+        "ask_followup": false,
+        "followup_purpose": null,
+        "followup_key": null
+      },
+      "resolved_reference": {}
+    },
+    "tool_calls": [
+      {
+        "tool": "plan_turn",
+        "arguments": {
+          "intents": [
+            {
+              "type": "ask_persona",
+              "subject": "persona",
+              "relation": null,
+              "normalized": "hỏi người đi cùng trong story",
+              "evidence": "Đi cùng ai thế bác?",
+              "source": "stated",
+              "confidence": 0.85
+            }
+          ],
+          "pending_questions": [],
+          "answered_question_keys": [],
+          "known_customer": {},
+          "known_persona": {},
+          "data_needs": [
+            "persona_stories"
+          ],
+          "goal": "answer_question",
+          "response_direction": {
+            "answer_first": true,
+            "ask_followup": false,
+            "followup_purpose": null,
+            "followup_key": null
+          },
+          "resolved_reference": {}
+        }
+      },
+      {
+        "tool": "get_persona_stories",
+        "arguments": {}
+      },
+      {
+        "tool": "get_customer_state",
+        "arguments": {}
+      },
+      {
+        "tool": "propose_addendum",
+        "arguments": {
+          "event_id": "evt_b4a13bc1f92d43fc",
+          "content": "Chuyến đó mình đi cùng cả nhà, bố mẹ ngồi sau khen xe êm.",
+          "entities": {
+            "persons": [
+              "gia đình"
+            ]
+          }
+        }
+      },
+      {
+        "tool": "submit_final_reply",
+        "arguments": {
+          "text": "Chuyến đó mình đi cùng cả nhà, bố mẹ ngồi sau khen xe êm.",
+          "claims": [
+            {
+              "kind": "story",
+              "ref_id": "evt_b4a13bc1f92d43fc",
+              "value": "Chuyến đó mình đi cùng cả nhà, bố mẹ ngồi sau khen xe êm."
+            }
+          ],
+          "goal": "answer_question"
+        }
+      }
+    ],
+    "saved_customer_facts": [],
+    "saved_stories": [
+      {
+        "event_id": "evt_b4a13bc1f92d43fc",
+        "title": "Chuyến về Nam Định cuối tuần",
+        "summary": "Đi Creta về Nam Định cuối tuần, đường trường êm, cả nhà ngồi thoải mái.",
+        "body": "Cuối tuần mình lái Creta từ Cầu Giấy về Nam Định thăm nhà. Đường trường xe chạy êm, người ngồi sau không bị mệt, cốp đủ đồ cho cả nhà.",
+        "addenda": [
+          "Chuyến đó mình đi cùng cả nhà, bố mẹ ngồi sau khen xe êm."
+        ],
+        "entities": {
+          "vehicle": "Hyundai Creta",
+          "places": [
+            "Cầu Giấy",
+            "Nam Định"
+          ],
+          "persons": []
+        },
+        "event_type": "trip",
+        "event_date": null,
+        "event_date_precision": "unknown",
+        "fictional_generated": true,
+        "status": "active",
+        "version": 2
+      }
+    ],
+    "validator_errors": [],
+    "reply": "Chuyến đó mình đi cùng cả nhà, bố mẹ ngồi sau khen xe êm."
+  },
+  {
+    "label": "Hỏi product fact",
+    "input": "Giá Creta bản cao nhất bao nhiêu?",
+    "status": "sent",
+    "planner": {
+      "intents": [
+        {
+          "type": "ask_product",
+          "subject": "self",
+          "relation": null,
+          "normalized": "hỏi giá",
+          "evidence": "Giá Creta bản cao nhất bao nhiêu?",
+          "source": "stated",
+          "confidence": 0.85
+        }
+      ],
+      "pending_questions": [],
+      "answered_question_keys": [],
+      "known_customer": {},
+      "known_persona": {},
+      "data_needs": [
+        "product_facts"
+      ],
+      "goal": "answer_question",
+      "response_direction": {
+        "answer_first": true,
+        "ask_followup": false,
+        "followup_purpose": null,
+        "followup_key": null
+      },
+      "resolved_reference": {}
+    },
+    "tool_calls": [
+      {
+        "tool": "plan_turn",
+        "arguments": {
+          "intents": [
+            {
+              "type": "ask_product",
+              "subject": "self",
+              "relation": null,
+              "normalized": "hỏi giá",
+              "evidence": "Giá Creta bản cao nhất bao nhiêu?",
+              "source": "stated",
+              "confidence": 0.85
+            }
+          ],
+          "pending_questions": [],
+          "answered_question_keys": [],
+          "known_customer": {},
+          "known_persona": {},
+          "data_needs": [
+            "product_facts"
+          ],
+          "goal": "answer_question",
+          "response_direction": {
+            "answer_first": true,
+            "ask_followup": false,
+            "followup_purpose": null,
+            "followup_key": null
+          },
+          "resolved_reference": {}
+        }
+      },
+      {
+        "tool": "get_product_facts",
+        "arguments": {
+          "model": "Hyundai Creta"
+        }
+      },
+      {
+        "tool": "get_customer_state",
+        "arguments": {}
+      },
+      {
+        "tool": "submit_final_reply",
+        "arguments": {
+          "text": "Theo dữ kiện mình có: 599 triệu đồng (giá mẫu, chưa phải giá thực tế) (dữ liệu mẫu, không phải giá thực tế).",
+          "claims": [
+            {
+              "kind": "product",
+              "ref_id": "dcaebd29055e461bb5912557",
+              "value": "599 triệu đồng (giá mẫu, chưa phải giá thực tế)"
+            }
+          ],
+          "goal": "answer_question"
+        }
+      }
+    ],
+    "saved_customer_facts": [],
+    "saved_stories": [],
+    "validator_errors": [],
+    "reply": "Theo dữ kiện mình có: 599 triệu đồng (giá mẫu, chưa phải giá thực tế) (dữ liệu mẫu, không phải giá thực tế)."
+  },
+  {
+    "label": "Khách muốn dừng",
+    "input": "Thôi, mình không muốn tiếp tục nữa.",
+    "status": "sent",
+    "planner": {
+      "intents": [
+        {
+          "type": "opt_out",
+          "subject": "self",
+          "relation": null,
+          "normalized": "khách muốn dừng",
+          "evidence": "Thôi, mình không muốn tiếp tục nữa.",
+          "source": "stated",
+          "confidence": 0.85
+        }
+      ],
+      "pending_questions": [],
+      "answered_question_keys": [],
+      "known_customer": {},
+      "known_persona": {},
+      "data_needs": [
+        "none"
+      ],
+      "goal": "stop",
+      "response_direction": {
+        "answer_first": true,
+        "ask_followup": false,
+        "followup_purpose": null,
+        "followup_key": null
+      },
+      "resolved_reference": {}
+    },
+    "tool_calls": [
+      {
+        "tool": "plan_turn",
+        "arguments": {
+          "intents": [
+            {
+              "type": "opt_out",
+              "subject": "self",
+              "relation": null,
+              "normalized": "khách muốn dừng",
+              "evidence": "Thôi, mình không muốn tiếp tục nữa.",
+              "source": "stated",
+              "confidence": 0.85
+            }
+          ],
+          "pending_questions": [],
+          "answered_question_keys": [],
+          "known_customer": {},
+          "known_persona": {},
+          "data_needs": [
+            "none"
+          ],
+          "goal": "stop",
+          "response_direction": {
+            "answer_first": true,
+            "ask_followup": false,
+            "followup_purpose": null,
+            "followup_key": null
+          },
+          "resolved_reference": {}
+        }
+      },
+      {
+        "tool": "submit_final_reply",
+        "arguments": {
+          "text": "Ok bạn, mình dừng ở đây nhé. Khi nào cần thì nhắn lại.",
+          "claims": [],
+          "goal": "stop"
+        }
+      }
+    ],
+    "saved_customer_facts": [],
+    "saved_stories": [],
+    "validator_errors": [],
+    "reply": "Ok bạn, mình dừng ở đây nhé. Khi nào cần thì nhắn lại."
+  }
+]
