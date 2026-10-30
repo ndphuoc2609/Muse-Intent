@@ -75,7 +75,7 @@ class FakeProvider:
         elif _has(t, "có phải ai không", "người thật hay ai", "là bot", "là robot"):
             add("ai_identity", norm="khách hỏi có phải AI không")
         # Câu hỏi về persona (có thể nhiều câu trong một lượt)
-        if _has(t, "màu gì", "mau gi", "xe màu"):
+        if _has(t, "màu gì", "mau gi", "xe màu", "màu xe"):
             add("ask_persona", subject="persona", norm="hỏi màu xe của persona")
             needs.add("persona_facts")
         if _has(t, "đang đi xe gì", "đi xe gì", "xe gì thế", "xe gì vậy"):
