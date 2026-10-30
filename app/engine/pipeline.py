@@ -175,9 +175,12 @@ class Pipeline:
                            role="user", text=req.text, status="sent")
         self.s.add(user_msg)
         self.s.commit()
-        history = self.s.execute(
+        # Lịch sử: 20 message GẦN NHẤT, không phải 20 message đầu tiên
+        # (query cũ order ASC + limit 20 sẽ mất hẳn lịch sử gần đây khi
+        # thread dài — model không còn thấy lượt vừa rồi để trả lời tiếp).
+        history = list(reversed(self.s.execute(
             select(Message).where(Message.thread_id == thread.id)
-            .order_by(Message.created_at).limit(20)).scalars().all()
+            .order_by(Message.created_at.desc()).limit(20)).scalars().all()))
         pending_qs = self.s.execute(
             select(QuestionState).where(
                 QuestionState.thread_id == thread.id,
@@ -190,12 +193,27 @@ class Pipeline:
                 CustomerFact.actor_id == req.actor_id,
                 CustomerFact.status == "current")).scalars().all()
         executor = ToolExecutor(self.s, req.persona_id, thread.id, req.actor_id)
+        # Lịch sử phải là message thật (user/assistant), không chỉ là text
+        # nhét trong system: câu trả lời ngắn, lược bỏ chủ ngữ như
+        # "Tiết kiệm thôi" chỉ hiểu được khi model thấy câu hỏi ngay
+        # trước đó ở đúng vị trí hội thoại. Trước đây pipeline chỉ gửi
+        # [system, user], nên model dễ coi lượt mới là độc lập và hỏi
+        # lại đúng câu vừa hỏi ở lượt trước.
+        # Giữ nguyên block system (FakeProvider vẫn parse pending question
+        # và xe trong bài từ đó), chỉ thêm history dạng message thật.
         messages: list[dict] = [
             {"role": "system",
              "content": _context_block(persona, thread, history, pending_qs,
                                        cust_facts)},
-            {"role": "user", "content": req.text},
         ]
+        for m in history:
+            if m.id == user_msg.id:
+                continue
+            if m.role == "user":
+                messages.append({"role": "user", "content": m.text})
+            elif m.role == "persona":
+                messages.append({"role": "assistant", "content": m.text})
+        messages.append({"role": "user", "content": req.text})
         tool_calls_log: list[dict] = []
         planner: Planner | None = None
         final: dict | None = None
@@ -358,6 +376,12 @@ class Pipeline:
         self._update_questions(thread.id, req.actor_id, planner, user_msg.id,
                                pending_qs)
         # Followup mới (nếu có) -> tạo QuestionState pending, trừ khi đã có.
+        # Model có thể trả followup_question mà quên followup_key: trước
+        # đây cả câu hỏi bị rớt luôn, lượt sau context ghi "(không có)"
+        # nên model không biết mình vừa hỏi gì và hỏi lại. Gán key chung
+        # thay vì rớt câu hỏi.
+        if final.get("followup_question") and not final.get("followup_key"):
+            final["followup_key"] = "followup_question"
         if final.get("followup_question") and final.get("followup_key") \
                 and not opted_out and goal != "handoff":
             exists = self.s.execute(
