@@ -154,6 +154,40 @@ Docker Compose (app + Postgres 16):
 docker compose up --build   # app ở http://127.0.0.1:8000/
 ```
 
+## Khắc phục lỗi thường gặp
+
+**`OpenRouter 400 Bad Request` ở lần gọi thứ 2 (sau plan_turn):**
+Nguyên nhân gốc (trace 30/10): pipeline cũ append tool message trực
+tiếp mà không có assistant message chứa `tool_calls` và không có
+`tool_call_id`, nên OpenAI/OpenRouter reject history ở lần gọi sau.
+Đồng thời Luna trả plan_turn sai schema chặt (goal là câu tự do,
+`source="user"`, `type="question"`, `response_direction` có field lạ)
+nên plan bị reject và planner rỗng. Đã sửa: pipeline luôn gửi
+assistant `tool_calls` + tool message kèm `tool_call_id` khớp nhau (cả
+vòng chính lẫn vòng repair), normalize plan của Luna về vocab Planner
+trước khi validate, và OpenRouter không retry lỗi 400 mà trả kèm body
+để chẩn đoán. Nếu vẫn gặp 400 sau bản sửa, xem body trong
+`validator_errors` — thường là model không tồn tại, key hết hạn, hoặc
+hết credit, không phải lỗi history nữa.
+
+### Lỗi thiếu driver Postgres
+
+**`ModuleNotFoundError: No module named 'psycopg'` khi dùng Neon:**
+SQLAlchemy 2.0 với URL `postgresql://` mặc định dùng driver psycopg v3.
+Lỗi này nghĩa là venv chưa có driver (requirements.txt cũ thiếu nó, đã
+sửa). Chạy trong venv đang dùng, rồi khởi động lại server — không cần
+tải lại toàn bộ project nếu chỉ sửa bước này:
+```bash
+pip install 'psycopg[binary]'
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+Lưu ý: dấu nháy quanh `psycopg[binary]` là bắt buộc trên zsh/macOS, nếu
+không shell sẽ hiểu `[binary]` là glob. URL Neon dạng
+`postgresql://USER:PASSWORD@HOST.neon.tech:5432/DB` — app tự thêm
+`sslmode=require` nếu URL chưa có; không cần tự thêm tay, nhưng thêm tay
+cũng không sao. Nếu vẫn lỗi, kiểm tra cậu đang ở đúng venv không (prompt
+phải hiện `(venv)` và `which python` trỏ vào `persona-dialogue/venv`).
+
 ## 6. Cấu hình provider và budget
 
 ```bash

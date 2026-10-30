@@ -3,165 +3,381 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Persona Dialogue — Sandbox</title>
 <style>
-body{font-family:system-ui,sans-serif;max-width:980px;margin:24px auto;padding:0 16px;color:#111}
-h1{font-size:22px} h2{font-size:17px;margin:0 0 8px}
-.warn{background:#fff7cc;border:1px solid #e5c100;padding:10px;border-radius:8px}
-.info{background:#eef4ff;border:1px solid #9db8e8;padding:10px;border-radius:8px}
-.card{border:1px solid #ddd;border-radius:10px;padding:14px;margin:12px 0}
-label{display:block;margin:8px 0 4px;font-weight:600}
-input,select,textarea{width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box}
-button{padding:9px 16px;border-radius:8px;border:0;background:#111;color:#fff;cursor:pointer;margin-top:10px}
-button:disabled{background:#bbb;cursor:not-allowed}
-button.secondary{background:#fff;color:#111;border:1px solid #999}
-.msg{padding:10px;border-radius:8px;margin:8px 0}.user{background:#eef4ff}.persona{background:#eefaf0}
-.review{background:#fff1f1}.error{background:#fde8e8}
-details{margin-top:8px} pre{white-space:pre-wrap;word-break:break-word;background:#f6f6f6;padding:10px;border-radius:6px;font-size:12px}
-.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;background:#eee;margin-left:6px}
+/* Tokens (udemi / Linear-Stripe clarity): warm gray with hue, no gradient, no glow. */
+:root{
+  --bg:#f6f5f2; --surface:#ffffff; --surface-2:#faf9f7;
+  --border:#e4e0d8; --border-strong:#cfc8bb;
+  --text:#1c1a17; --muted:#6d675c;
+  --accent:#0f766e; --accent-soft:#e6f2f0; --accent-text:#0b5e58;
+  --warn-bg:#fff8e1; --warn-border:#e2c87a;
+  --review-bg:#fdf0e6; --review-border:#e8b48a;
+  --error:#b42318; --error-bg:#fdf0ef;
+  --success:#067647;
+  --radius:12px; --radius-sm:8px;
+  --shadow:0 1px 2px rgba(28,26,23,.06);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font-family:"Segoe UI",Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6}
+a{color:var(--accent-text)}
+button,input,select,textarea{font:inherit}
+button{cursor:pointer}
+/* Header: one focal point, one primary action area below. */
+.topbar{background:var(--surface);border-bottom:1px solid var(--border)}
+.topbar-inner{max-width:1120px;margin:0 auto;padding:20px 24px 16px;display:flex;gap:16px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.brand{display:flex;gap:16px;align-items:flex-start}
+.mark{width:44px;height:44px;min-width:44px;background:var(--text);color:#fff;border-radius:10px;display:grid;place-items:center;font-family:Georgia,serif;font-size:22px;font-weight:700}
+h1{font-family:Georgia,"Times New Roman",serif;font-size:28px;line-height:1.2;margin:0}
+.subtitle{color:var(--muted);margin:4px 0 0;font-size:14px}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid var(--border);background:var(--surface-2);white-space:nowrap}
+.badge.fictional{background:#fff8e1;border-color:var(--warn-border)}
+.badge.live{background:var(--accent-soft);color:var(--accent-text);border-color:#bfe0dc}
+.wrap{max-width:1120px;margin:0 auto;padding:24px}
+.notice{border:1px solid var(--warn-border);background:var(--warn-bg);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px}
+.provider{border:1px solid var(--border);background:var(--surface);border-radius:var(--radius);padding:12px 16px;margin-bottom:24px;box-shadow:var(--shadow)}
+/* Layout: sidebar (setup) + main (chat). Gap between groups >> gap within. */
+.layout{display:grid;grid-template-columns:360px 1fr;gap:32px;align-items:start}
+@media (max-width:900px){.layout{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;box-shadow:var(--shadow);margin-bottom:24px}
+.card h2{font-family:Georgia,serif;font-size:19px;line-height:1.3;margin:0 0 4px}
+.card .hint{color:var(--muted);font-size:13px;margin:0 0 16px}
+.step{display:flex;gap:12px;align-items:flex-start;margin-bottom:16px}
+.step-num{width:28px;height:28px;min-width:28px;border-radius:8px;background:var(--text);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:700}
+.step-title{font-weight:700}
+.step-sub{color:var(--muted);font-size:13px;line-height:1.5}
+label{display:block;margin:16px 0 6px;font-weight:600;font-size:14px}
+input,select,textarea{width:100%;padding:11px 12px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:#fff;color:var(--text);min-height:44px}
+textarea{resize:vertical}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:3px solid var(--accent);outline-offset:2px;border-color:var(--accent)}
+button{min-height:44px;padding:10px 16px;border-radius:10px;border:0;background:var(--text);color:#fff;font-weight:600}
+button:hover{background:#000}
+button:disabled{background:#c9c4ba;cursor:not-allowed}
+button.secondary{background:var(--surface);color:var(--text);border:1px solid var(--border-strong)}
+button.secondary:hover{background:var(--surface-2)}
+button.danger-text{background:transparent;color:var(--error);border:1px solid #e8b4b0;padding:10px 14px;min-height:44px;font-size:13px}
+.row{display:flex;gap:12px;flex-wrap:wrap}
+.row button{margin-top:12px}
+.meta{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+.meta code{background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:1px 6px;font-size:12px}
+/* Persona profile */
+.persona-head{display:flex;gap:16px;align-items:center;margin-top:16px}
+.avatar{width:56px;height:56px;min-width:56px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-family:Georgia,serif;font-size:22px;font-weight:700}
+.persona-name{font-family:Georgia,serif;font-size:19px;font-weight:700;line-height:1.3}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.chip{border:1px solid var(--border);background:var(--surface-2);border-radius:999px;padding:4px 10px;font-size:13px}
+.chip b{font-weight:700}
+/* Chat */
+.chat-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;border-bottom:1px solid var(--border);padding-bottom:16px;margin-bottom:16px}
+.chat-log{min-height:280px;max-height:560px;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:4px 2px 16px}
+.empty{border:1px dashed var(--border-strong);border-radius:var(--radius);padding:24px;text-align:center;color:var(--muted)}
+.msg{max-width:88%;padding:12px 14px;border-radius:14px;line-height:1.6}
+.msg.user{align-self:flex-end;background:var(--text);color:#fff;border-bottom-right-radius:4px}
+.msg.persona{align-self:flex-start;background:var(--surface-2);border:1px solid var(--border);border-bottom-left-radius:4px}
+.msg.review{align-self:flex-start;background:var(--review-bg);border:1px solid var(--review-border)}
+.msg.error{align-self:flex-start;background:var(--error-bg);border:1px solid #e8b4b0}
+.msg .who{font-size:12px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;opacity:.75;margin-bottom:4px}
+.msg.user .who{color:#d8d2c8}
+.status{font-size:12px;font-weight:700}
+.status.sent{color:var(--success)} .status.review{color:#9a5b12} .status.error{color:var(--error)}
+details{margin-top:10px}
+details summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--muted)}
+pre{white-space:pre-wrap;word-break:break-word;background:#1c1a17;color:#f2efe9;padding:12px;border-radius:8px;font-size:12px;line-height:1.5;overflow:auto}
+.composer{border-top:1px solid var(--border);padding-top:16px;margin-top:4px}
+.typing{color:var(--muted);font-size:13px;min-height:20px}
+/* Stories */
+.story-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:700px){.story-grid{grid-template-columns:1fr}}
+.story{border:1px solid var(--border);border-radius:var(--radius);padding:16px;background:var(--surface-2);overflow-wrap:anywhere}
+.story h3{overflow-wrap:anywhere}
+.story h3{font-family:Georgia,serif;font-size:16px;margin:0 0 6px}
+.footer{color:var(--muted);font-size:13px;line-height:1.6}
 </style></head><body>
-<h1>Persona Dialogue — Sandbox <span class="badge">PERSONA HƯ CẤU</span></h1>
-<p class="warn">⚠️ Persona là <b>hư cấu</b>. Dữ kiện sản phẩm ở đây là
-<b>dữ liệu mẫu, không phải giá thực tế</b>. “Đã gửi qua FakeSender” khác với
-“Bản nháp” / “Cần review”. Không có tích hợp Facebook/Meta ở giai đoạn này.</p>
-<p class="info" id="providerBox">Đang kiểm tra provider…</p>
+<header class="topbar"><div class="topbar-inner">
+  <div class="brand"><div class="mark" aria-hidden="true">P</div><div>
+    <h1>Persona Dialogue</h1>
+    <p class="subtitle">Sandbox hội thoại theo persona — chọn persona, tạo bài, bình luận và xem toàn bộ quá trình xử lý.</p>
+  </div></div>
+  <div><span class="badge fictional">Persona hư cấu</span> <span class="badge">Dữ liệu mẫu</span></div>
+</div></header>
 
-<div class="card">
-  <h2>Bước 1 — Chọn persona</h2>
-  <button onclick="seedAndLoad()">Seed persona mẫu (nếu chưa có)</button>
-  <label>Persona</label>
-  <select id="persona"><option value="">— chưa có persona, bấm Seed —</option></select>
-  <button class="secondary" onclick="loadPersonas()">Tải lại danh sách persona</button>
-  <div id="profile"></div>
-</div>
+<main class="wrap">
+  <p class="notice">⚠️ Persona là <b>hư cấu</b>, không phải người thật. Dữ kiện sản phẩm ở đây là <b>dữ liệu mẫu, không phải giá thực tế</b>. “Đã gửi qua FakeSender” khác với “Bản nháp” / “Cần review”. Không có tích hợp Facebook/Meta ở giai đoạn này.</p>
+  <p class="provider" id="providerBox">Đang kiểm tra provider…</p>
 
-<div class="card">
-  <h2>Bước 2 — Tạo bài viết</h2>
-  <label>Nội dung bài viết</label>
-  <textarea id="post" rows="2">Mình mới lấy Creta đi làm hàng ngày, cuối tuần về quê. Mọi người thấy sao?</textarea>
-  <label>Xe trong bài viết (phân tách bằng dấu phẩy)</label>
-  <input id="vehicles" value="Hyundai Creta">
-  <button id="createBtn" onclick="createPost()">Tạo bài viết</button>
-  <div>Bài viết đã tạo: <code id="thread">— chưa tạo bài —</code></div>
-  <div id="postPreview"></div>
-</div>
+  <div class="layout">
+    <div>
+      <section class="card" aria-labelledby="step1">
+        <div class="step"><div class="step-num" aria-hidden="true">1</div><div>
+          <h2 id="step1">Chọn persona</h2>
+          <p class="hint">Persona trò chuyện như người chia sẻ trải nghiệm, không phải nhân viên bán hàng.</p>
+        </div></div>
+        <div class="row">
+          <button type="button" id="seedBtn" onclick="seedAndLoad()">Seed persona mẫu</button>
+          <button type="button" class="secondary" onclick="loadPersonas()">Tải lại danh sách</button>
+        </div>
+        <label for="persona">Persona</label>
+        <select id="persona"><option value="">— chưa có persona, bấm Seed —</option></select>
+        <div id="profile"></div>
+      </section>
 
-<div class="card">
-  <h2>Bước 3 — Bình luận, persona trả lời</h2>
-  <label>Người bình luận</label>
-  <select id="actor">
-    <option value="actor-1">Khách 1</option>
-    <option value="actor-2">Khách 2</option>
-  </select>
-  <label>Comment (nhiều lượt, gửi từng lượt một)</label>
-  <textarea id="comment" rows="3" placeholder="VD: Bác đi xe màu gì thế?" disabled></textarea>
-  <label>Idempotency-Key (tùy chọn; nhập lại key cũ để test gửi lặp)</label>
-  <input id="idem" placeholder="vd: turn-1">
-  <button id="sendBtn" onclick="sendTurn()" disabled>Gửi comment</button>
-  <p id="commentHint">Hãy tạo bài viết ở Bước 2 trước, rồi mới comment được.</p>
-  <div id="chat"></div>
-</div>
+      <section class="card" aria-labelledby="step2">
+        <div class="step"><div class="step-num" aria-hidden="true">2</div><div>
+          <h2 id="step2">Tạo bài viết</h2>
+          <p class="hint">Bài viết là context để persona và khách cùng nói về một chiếc xe.</p>
+        </div></div>
+        <label for="post">Nội dung bài viết</label>
+        <textarea id="post" rows="3">Mình mới lấy Creta đi làm hàng ngày, cuối tuần về quê. Mọi người thấy sao?</textarea>
+        <label for="vehicles">Xe trong bài viết (phân tách bằng dấu phẩy)</label>
+        <input id="vehicles" value="Hyundai Creta">
+        <div class="row"><button type="button" id="createBtn" onclick="createPost()">Tạo bài viết</button></div>
+        <p class="meta">Bài viết đã tạo: <code id="thread">— chưa tạo bài —</code></p>
+        <div id="postPreview"></div>
+      </section>
+    </div>
 
-<div class="card"><h2>Canonical stories của persona</h2>
-  <button class="secondary" onclick="loadPersonaDetail()">Tải lại stories</button>
-  <div id="stories"></div>
-</div>
+    <section class="card" aria-labelledby="step3">
+      <div class="step"><div class="step-num" aria-hidden="true">3</div><div>
+        <h2 id="step3">Bình luận, persona trả lời</h2>
+        <p class="hint">Gửi từng lượt một. Reply kèm trạng thái và trace kỹ thuật để kiểm tra.</p>
+      </div></div>
+      <div class="chat-head">
+        <div>
+          <label for="actor" style="margin-top:0">Người bình luận</label>
+          <select id="actor" style="max-width:260px">
+            <option value="actor-1">Khách 1</option>
+            <option value="actor-2">Khách 2</option>
+          </select>
+        </div>
+        <div class="meta" id="threadMeta">Chưa có bài viết</div>
+      </div>
+      <div class="chat-log" id="chat" role="log" aria-label="Khung chat">
+        <div class="empty" id="chatEmpty">Chưa có bình luận nào.<br>Hãy tạo bài viết ở Bước 2, rồi nhập comment bên dưới.</div>
+      </div>
+      <p class="typing" id="typing" aria-live="polite"></p>
+      <div class="composer">
+        <label for="comment">Comment</label>
+        <textarea id="comment" rows="3" placeholder="VD: Bác đi xe màu gì thế?" disabled></textarea>
+        <label for="idem">Idempotency-Key (tùy chọn; nhập lại key cũ để test gửi lặp)</label>
+        <input id="idem" placeholder="vd: turn-1">
+        <div class="row">
+          <button type="button" id="sendBtn" onclick="sendTurn()" disabled>Gửi comment</button>
+        </div>
+        <p class="meta" id="commentHint">Hãy tạo bài viết ở Bước 2 trước, rồi mới comment được. Mẹo: Ctrl/Cmd + Enter để gửi.</p>
+      </div>
+    </section>
+  </div>
 
-<p style="font-size:13px;color:#555">Để Luna thật trả lời thay vì bản mô phỏng:
-đặt <code>LLM_PROVIDER=openrouter</code>, <code>OPENROUTER_API_KEY</code> và
-<code>OPENROUTER_MODEL=openai/gpt-6-luna</code> vào file <code>.env</code> trên
-máy chủ rồi khởi động lại server — không nhập key vào giao diện này, không dán
-key vào chat.</p>
+  <section class="card" aria-labelledby="storiesTitle">
+    <h2 id="storiesTitle">Canonical stories của persona</h2>
+    <p class="hint">Story đã lưu (kể cả hư cấu) và addenda. Thu hồi chỉ đổi trạng thái, không xóa lịch sử.</p>
+    <div class="row"><button type="button" class="secondary" onclick="loadPersonaDetail()">Tải lại stories</button></div>
+    <div id="stories" style="margin-top:16px"><p class="meta">Chưa tải stories.</p></div>
+  </section>
+
+  <p class="footer">Để Luna thật trả lời thay vì bản mô phỏng: đặt <code>LLM_PROVIDER=openrouter</code>, <code>OPENROUTER_API_KEY</code> và <code>OPENROUTER_MODEL=openai/gpt-6-luna</code> vào file <code>.env</code> trên máy chủ rồi khởi động lại server — không nhập key vào giao diện này, không dán key vào chat.</p>
+</main>
 
 <script>
 let threadId = null;
-let selectedPersona = '';
+let isSending = false;
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 async function api(path, opts={}) {
   const r = await fetch(path, {headers:{'Content-Type':'application/json'}, ...opts});
-  return r.json();
+  let d = null;
+  try { d = await r.json(); } catch (e) { /* non-JSON */ }
+  if (!r.ok) {
+    const detail = d && (d.detail || d.error) ? (d.detail || d.error) : ('HTTP ' + r.status);
+    throw new Error(detail);
+  }
+  if (d === null) throw new Error('Server tra ve noi dung khong phai JSON.');
+  return d;
 }
 async function checkProvider() {
-  const h = await api('/health');
   const box = document.getElementById('providerBox');
+  let h;
+  try { h = await api('/health'); }
+  catch (e) {
+    box.innerHTML = 'Không gọi được server: ' + esc(e.message) + '. Kiểm tra server có đang chạy ở cổng 8000 không.';
+    return;
+  }
   if (h.provider === 'OpenRouterProvider' || h.openrouter_configured) {
-    box.innerHTML = `Provider hiện tại: <b>Luna qua OpenRouter</b> — model <code>${h.openrouter_model}</code>. Comment sẽ do Luna trả lời qua pipeline.`;
+    box.innerHTML = `Provider hiện tại: <b>Luna qua OpenRouter</b> — model <code>${esc(h.openrouter_model)}</code>. Comment sẽ do Luna trả lời qua pipeline.`;
   } else {
     box.innerHTML = `Provider hiện tại: <b>Fake (mô phỏng offline)</b> — chưa cấu hình OpenRouter key trong .env, nên reply hiện tại là bản mô phỏng theo cùng contract tool (không phải Luna thật). Xem hướng dẫn cuối trang để bật Luna.`;
   }
 }
 async function seedAndLoad() {
-  const d = await api('/seed', {method:'POST'});
-  await loadPersonas();
-  document.getElementById('profile').innerHTML = 'Seed: ' + JSON.stringify(d);
+  const btn = document.getElementById('seedBtn');
+  btn.disabled = true;
+  try {
+    const d = await api('/seed', {method:'POST'});
+    await loadPersonas();
+    document.getElementById('profile').innerHTML = '<p class="meta">Seed: ' + esc(JSON.stringify(d)) + '</p>';
+  } catch (e) {
+    document.getElementById('profile').innerHTML = '<p class="meta">Seed lỗi: ' + esc(e.message) + '</p>';
+  } finally { btn.disabled = false; }
 }
 async function loadPersonas() {
-  const list = await api('/personas');
   const sel = document.getElementById('persona');
+  const prev = sel.value;
+  let list;
+  try { list = await api('/personas'); }
+  catch (e) {
+    document.getElementById('profile').innerHTML = '<p class="meta">Không tải được danh sách persona: ' + esc(e.message) + '</p>';
+    return;
+  }
   if (!list.length) { sel.innerHTML = '<option value="">— chưa có persona, bấm Seed —</option>'; return; }
-  sel.innerHTML = list.map(p => `<option value="${p.id}">${p.display_name} — ${p.region} (${p.id})</option>`).join('');
-  selectedPersona = sel.value;
+  sel.innerHTML = list.map(p => `<option value="${esc(p.id)}">${esc(p.display_name)} — ${esc(p.region)} (${esc(p.id)})</option>`).join('');
+  if (prev && list.some(pp => pp.id === prev)) sel.value = prev;
   loadPersonaDetail();
 }
 document.addEventListener('change', (e) => {
-  if (e.target.id === 'persona') { selectedPersona = e.target.value; loadPersonaDetail(); }
+  if (e.target.id === 'persona') {
+    if (threadId) {
+      threadId = null;
+      document.getElementById('thread').textContent = '— chưa tạo bài —';
+      document.getElementById('threadMeta').textContent = 'Chưa có bài viết';
+      document.getElementById('postPreview').innerHTML = '';
+      document.getElementById('comment').disabled = true;
+      document.getElementById('sendBtn').disabled = true;
+      document.getElementById('commentHint').textContent = 'Đã đổi persona — hãy tạo bài viết mới ở Bước 2 trước khi comment.';
+      document.getElementById('chat').innerHTML = '<div class="empty" id="chatEmpty">Chưa có bình luận nào.<br>Hãy tạo bài viết ở Bước 2, rồi nhập comment bên dưới.</div>';
+    }
+    loadPersonaDetail();
+  }
 });
+function initials(name){return (name||'?').trim().split(/\s+/).slice(-2).map(w=>w[0]).join('').toUpperCase()}
 async function loadPersonaDetail() {
   const pid = document.getElementById('persona').value;
   if (!pid) return;
-  const d = await api('/personas/' + pid);
-  if (d.detail) { document.getElementById('profile').innerHTML = d.detail; return; }
+  let d;
+  try { d = await api('/personas/' + pid); }
+  catch (e) {
+    document.getElementById('profile').innerHTML = '<p class="meta">Không tải được hồ sơ persona: ' + esc(e.message) + '</p>';
+    return;
+  }
+  if (d.detail) { document.getElementById('profile').innerHTML = '<p class="meta">' + esc(d.detail) + '</p>'; return; }
   document.getElementById('profile').innerHTML =
-    `<p><b>${d.display_name}</b>, ${d.age} tuổi, ${d.region} — stance: ${d.stance}</p>` +
-    `<p>Facts: ${d.facts.map(f=>`${f.fact_key}=${f.value} [${f.source}]`).join(' · ')}</p>`;
-  document.getElementById('stories').innerHTML = d.stories.map(s =>
-    `<div><b>${s.title||s.event_id}</b> (v${s.version}, ${s.status})<br>${s.summary}` +
-    (s.addenda.length ? `<br>Addenda: ${s.addenda.join(' | ')}` : '') +
-    ` <button class="secondary" onclick="revoke('${s.event_id}')">Thu hồi</button></div>`).join('') || '(chưa có story)';
+    `<div class="persona-head"><div class="avatar" aria-hidden="true">${esc(initials(d.display_name))}</div><div>
+      <div class="persona-name">${esc(d.display_name)}</div>
+      <div class="meta">${esc(d.age)} tuổi · ${esc(d.region)} · stance: ${esc(d.stance)}</div>
+    </div></div>` +
+    `<div class="chips">${d.facts.map(f=>`<span class="chip"><b>${esc(f.fact_key)}</b> = ${esc(f.value)}</span>`).join('') || '<span class="meta">Chưa có fact.</span>'}</div>`;
+  document.getElementById('stories').innerHTML = d.stories.length ? `<div class="story-grid">` + d.stories.map(s =>
+    `<article class="story"><h3>${esc(s.title||s.event_id)}</h3>` +
+    `<p class="meta">v${esc(s.version)} · ${esc(s.status)} · ${s.fictional_generated ? 'hư cấu' : 'đã xác thực'}</p>` +
+    `<p>${esc(s.summary)}</p>` +
+    (s.addenda.length ? `<p><b>Addenda:</b> ${esc(s.addenda.join(' | '))}</p>` : '') +
+    ` <button type="button" class="danger-text" data-revoke-id="${esc(s.event_id)}">Thu hồi story</button></article>`).join('') + `</div>` : '<p class="meta">Chưa có story nào. Hỏi persona về kỷ niệm để tạo story đầu tiên.</p>';
+  document.querySelectorAll('[data-revoke-id]').forEach(btn => {
+    btn.addEventListener('click', () => revoke(btn.getAttribute('data-revoke-id')));
+  });
 }
 async function revoke(eventId) {
   const pid = document.getElementById('persona').value;
-  await api(`/personas/${pid}/stories/${eventId}/revoke`, {method:'POST'});
+  if (!confirm('Thu hồi story này? Trạng thái sẽ đổi thành revoked, lịch sử vẫn giữ nguyên.')) return;
+  try {
+    await api(`/personas/${pid}/stories/${eventId}/revoke`, {method:'POST'});
+  } catch (e) { alert('Thu hồi lỗi: ' + e.message); return; }
   loadPersonaDetail();
 }
 async function createPost() {
   const pid = document.getElementById('persona').value;
   if (!pid) { alert('Hãy chọn persona ở Bước 1 (bấm Seed nếu chưa có).'); return; }
-  const d = await api('/threads', {method:'POST', body: JSON.stringify({
-    persona_id: pid,
-    post_text: document.getElementById('post').value,
-    post_vehicle_models: document.getElementById('vehicles').value.split(',').map(s=>s.trim()).filter(Boolean),
-  })});
+  const postText = document.getElementById('post').value.trim();
+  const vehicles = document.getElementById('vehicles').value.split(',').map(x=>x.trim()).filter(Boolean);
+  if (!postText || !vehicles.length) {
+    document.getElementById('postPreview').innerHTML = '<p class="meta">Chưa tạo được bài: hãy nhập nội dung bài viết và ít nhất một xe.</p>';
+    return;
+  }
+  const btn = document.getElementById('createBtn');
+  btn.disabled = true;
+  const oldLabel = btn.textContent;
+  btn.textContent = 'Đang tạo…';
+  let d;
+  try {
+    d = await api('/threads', {method:'POST', body: JSON.stringify({
+      persona_id: pid, post_text: postText, post_vehicle_models: vehicles,
+    })});
+  } catch (e) {
+    document.getElementById('postPreview').innerHTML = '<p class="meta">Tạo bài lỗi: ' + esc(e.message) + '</p>';
+    btn.disabled = false; btn.textContent = oldLabel;
+    return;
+  }
+  btn.disabled = false; btn.textContent = oldLabel;
   if (d.detail) { alert(d.detail); return; }
   threadId = d.thread_id;
   document.getElementById('thread').textContent = threadId;
+  document.getElementById('threadMeta').textContent = 'Bài viết: ' + threadId;
   document.getElementById('postPreview').innerHTML =
-    `<p><b>Bài viết:</b> ${d.post_text}<br><b>Xe:</b> ${(d.post_vehicle_models||[]).join(', ')}</p>`;
+    `<p><b>Bài viết:</b> ${esc(d.post_text)}</p><p class="meta">Xe: ${esc((d.post_vehicle_models||[]).join(', '))}</p>` +
+    `<p class="meta">Lưu ý: sửa nội dung ở ô trên không đổi bài đã tạo — bấm “Tạo bài viết” lại để tạo bài mới.</p>`;
   document.getElementById('comment').disabled = false;
   document.getElementById('sendBtn').disabled = false;
-  document.getElementById('commentHint').textContent = 'Đã có bài viết — nhập comment và gửi, persona sẽ trả lời ngay dưới đây.';
-  document.getElementById('chat').innerHTML = '';
+  document.getElementById('commentHint').textContent = 'Đã có bài viết — nhập comment và gửi, persona sẽ trả lời ngay trong khung chat.';
+  document.getElementById('chat').innerHTML = '<div class="empty" id="chatEmpty">Bài viết đã sẵn sàng. Gửi comment đầu tiên bên dưới.</div>';
+  document.getElementById('comment').focus();
 }
 async function sendTurn() {
+  if (isSending) return;
   const text = document.getElementById('comment').value.trim();
   if (!text) return;
   if (!threadId) { alert('Hãy tạo bài viết ở Bước 2 trước.'); return; }
+  isSending = true;
   const chat = document.getElementById('chat');
+  const empty = document.getElementById('chatEmpty');
+  if (empty) empty.remove();
   const actorName = document.getElementById('actor').selectedOptions[0].text;
-  chat.innerHTML += `<div class="msg user"><b>${actorName}:</b> ${text}</div>`;
+  chat.innerHTML += `<div class="msg user"><div class="who">${esc(actorName)}</div>${esc(text)}</div>`;
+  const sendBtn = document.getElementById('sendBtn');
+  const commentBox = document.getElementById('comment');
+  sendBtn.disabled = true;
+  commentBox.disabled = true;
+  document.getElementById('typing').textContent = 'Persona đang trả lời…';
   const pid = document.getElementById('persona').value;
+  // Thread đã lưu sẵn post_text/vehicles lúc tạo bài — không gửi lại
+  // nội dung hiện tại ở ô nhập, tránh tưởng sửa ô là đổi context (M9).
   const body = {persona_id: pid, thread_id: threadId,
-    post_text: document.getElementById('post').value,
-    post_vehicle_models: document.getElementById('vehicles').value.split(',').map(s=>s.trim()).filter(Boolean),
     actor_id: document.getElementById('actor').value, text};
   const headers = {'Content-Type':'application/json'};
   const idem = document.getElementById('idem').value.trim();
   if (idem) headers['Idempotency-Key'] = idem;
-  const d = await fetch('/turns', {method:'POST', headers, body: JSON.stringify(body)}).then(r=>r.json());
+  let d;
+  try {
+    const r = await fetch('/turns', {method:'POST', headers, body: JSON.stringify(body)});
+    d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('HTTP ' + r.status));
+  } catch (e) {
+    chat.innerHTML += `<div class="msg error"><div class="who">Lỗi</div>${esc(e.message)}</div>`;
+    chat.scrollTop = chat.scrollHeight;
+    document.getElementById('typing').textContent = '';
+    sendBtn.disabled = false;
+    commentBox.disabled = false;
+    isSending = false;
+    commentBox.focus();
+    return;
+  }
+  document.getElementById('typing').textContent = '';
+  sendBtn.disabled = false;
+  commentBox.disabled = false;
+  isSending = false;
   const cls = d.status==='sent' ? 'persona' : d.status==='review' ? 'review' : 'error';
-  const statusLabel = d.status==='sent' ? 'Đã gửi qua FakeSender' : d.status==='review' ? 'Cần review / handoff (chưa gửi)' : d.status==='error' ? 'Lỗi' : 'Bản nháp';
-  const esc = (s) => JSON.stringify(s, null, 2);
-  chat.innerHTML += `<div class="msg ${cls}"><b>Persona:</b> ${d.reply_text||'(không có reply)'} <span class="badge">${statusLabel}</span>
-    <details><summary>Trace kỹ thuật (planner, tool, fact/story đã lưu, validator)</summary><pre>${esc({planner:d.planner, tool_calls:d.tool_calls, saved_customer_facts:d.saved_customer_facts, saved_stories:d.saved_stories, validator_errors:d.validator_errors, trace:d.trace})}</pre></details></div>`;
-  document.getElementById('comment').value = '';
+  const statusLabel = d.status==='sent' ? 'Đã gửi qua FakeSender' : d.status==='review' ? 'Cần review / handoff (chưa gửi)' : 'Lỗi';
+  const statusCls = d.status==='sent' ? 'sent' : d.status==='review' ? 'review' : 'error';
+  const replyText = d.reply_text || (d.detail ? 'Lỗi: ' + d.detail : '(không có reply)');
+  chat.innerHTML += `<div class="msg ${cls}"><div class="who">Persona · <span class="status ${statusCls}">${statusLabel}</span></div>${esc(replyText)}
+    <details><summary>Trace kỹ thuật (planner, tool, fact/story đã lưu, validator)</summary><pre>${esc(JSON.stringify({planner:d.planner, tool_calls:d.tool_calls, saved_customer_facts:d.saved_customer_facts, saved_stories:d.saved_stories, validator_errors:d.validator_errors, trace:d.trace}, null, 2))}</pre></details></div>`;
+  chat.scrollTop = chat.scrollHeight;
+  if (cls !== 'error') document.getElementById('comment').value = '';
+  document.getElementById('comment').focus();
   loadPersonaDetail();
 }
+document.getElementById('comment').addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    if (isSending || document.getElementById('sendBtn').disabled) return;
+    sendTurn();
+  }
+});
 checkProvider(); loadPersonas();
 </script></body></html>

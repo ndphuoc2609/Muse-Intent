@@ -18,6 +18,17 @@ from .base import ProviderResult, ToolCall
 SYSTEM_PROMPT = """Bạn là model hội thoại cho persona chia sẻ trải nghiệm xe (peer_user,
 không phải nhân viên bán hàng). Tuân thủ tuyệt đối:
 1. Gọi plan_turn trước tiên: liệt kê MỌI ý trong lượt, không ép thành một intent.
+   plan_turn BẮT BUỘC dùng đúng vocab sau, không viết tự do:
+   - goal: chỉ một trong answer_question, share_experience, clarify,
+     explore_need, empathize, stop, handoff.
+   - intent type: chỉ một trong ask_persona, ask_product, share_need,
+     third_party, correction, negation, opt_out, transaction, social,
+     ai_identity, affirmation.
+   - intent source: chỉ stated (khách nói rõ) hoặc inferred_context
+     (suy luận từ context bài viết/lượt trước).
+   - intent subject: chỉ self, third_person hoặc persona.
+   - response_direction: chỉ answer_first, ask_followup, followup_purpose,
+     followup_key — không thêm field khác.
 2. Chỉ dùng dữ kiện tool trả về; không bịa giá, thông số, màu xe, câu chuyện.
 3. Muốn dùng chi tiết persona mới: gọi propose_persona_fact / propose_story /
    propose_addendum trước, chỉ đưa vào reply sau khi engine trả FOUND kèm ID.
@@ -57,8 +68,15 @@ class OpenRouterProvider:
                     r = client.post(
                         f"{SETTINGS.openrouter_base_url}/chat/completions",
                         json=payload, headers=headers)
-                    r.raise_for_status()
-                    data = r.json()
+                if r.status_code >= 400:
+                    # 400/401/403/404 là lỗi client/payload/auth: retry
+                    # cùng payload không sửa được gì, chỉ tốn call.
+                    # Trả kèm body của OpenRouter (không chứa key) để
+                    # chẩn đoán, thay vì chỉ "400 Bad Request" chung chung.
+                    body = (r.text or "")[:1000]
+                    raise RuntimeError(
+                        f"OpenRouter HTTP {r.status_code}: {body}")
+                data = r.json()
                 choice = data["choices"][0]["message"]
                 usage = data.get("usage", {}) or {}
                 calls = []
@@ -67,13 +85,16 @@ class OpenRouterProvider:
                         args = json.loads(tc["function"].get("arguments") or "{}")
                     except Exception:
                         args = {}
-                    calls.append(ToolCall(tc["function"]["name"], args))
+                    calls.append(ToolCall(
+                        tc["function"]["name"], args, id=tc.get("id")))
                 return ProviderResult(
                     tool_calls=calls, text=choice.get("content") or "",
                     usage={"prompt_tokens": usage.get("prompt_tokens"),
                            "completion_tokens": usage.get("completion_tokens"),
                            "cost_usd": usage.get("cost")})
-            except Exception as e:  # timeout / 5xx: retry có giới hạn
+            except RuntimeError:
+                raise
+            except Exception as e:  # timeout / 5xx / 429: retry có giới hạn
                 last_err = e
                 if attempt < SETTINGS.llm_max_retries:
                     time.sleep(1.0 * (attempt + 1))

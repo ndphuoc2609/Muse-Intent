@@ -15,6 +15,10 @@ from typing import Any, Protocol
 class ToolCall:
     name: str
     arguments: dict
+    # id của tool call theo chuẩn OpenAI: bắt buộc để tool message sau
+    # đó khớp đúng assistant message. FakeProvider không cần, pipeline
+    # sẽ tự sinh nếu provider không trả id.
+    id: str | None = None
 
 
 @dataclass

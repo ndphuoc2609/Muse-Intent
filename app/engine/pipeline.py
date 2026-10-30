@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 
 import jsonschema
 from sqlalchemy import select
@@ -27,9 +28,41 @@ from ..models import (Actor, Delivery, Message, Persona, PersonaStory,
                       QuestionState, Thread)
 from ..schemas import FinalReply, Planner, TurnRequest, TurnResponse
 from .fake_sender import FakeSender
+from .planner_normalize import normalize_planner_args
 from .tool_schemas import TOOL_SCHEMAS, TOOLS
 from .tools import ToolExecutor
 from .validator import validate
+
+
+def _assign_ids(tool_calls):
+    """Gán tool_call_id nếu provider không trả (Fake)."""
+    for tc in tool_calls:
+        if not getattr(tc, "id", None):
+            tc.id = "call_" + uuid.uuid4().hex[:16]
+    return tool_calls
+
+
+def _append_assistant(messages, result):
+    """Assistant message BẮT BUỘC đứng trước mọi tool message theo chuẩn
+    OpenAI: thiếu nó, OpenRouter trả 400 ở lần gọi thứ 2 trở đi (đúng
+    lỗi trong trace cậu gửi)."""
+    messages.append({
+        "role": "assistant",
+        "content": result.text or "",
+        "tool_calls": [{
+            "id": tc.id, "type": "function",
+            "function": {"name": tc.name,
+                         "arguments": json.dumps(tc.arguments,
+                                                 ensure_ascii=False)},
+        } for tc in result.tool_calls],
+    })
+
+
+def _append_tool(messages, tc, payload):
+    messages.append({
+        "role": "tool", "tool_call_id": tc.id,
+        "content": json.dumps(payload, ensure_ascii=False),
+    })
 
 
 def _context_block(persona, thread, history, pending_qs, customer_facts):
@@ -192,47 +225,63 @@ class Pipeline:
                 final = {"text": result.text, "claims": [],
                          "goal": "answer_question"}
                 break
+            _assign_ids(result.tool_calls)
+            _append_assistant(messages, result)
             for tc in result.tool_calls:
                 tool_calls_log.append({"tool": tc.name, "arguments": tc.arguments})
+                if tc.name == "plan_turn":
+                    # Normalize TRƯỚC khi validate schema: Luna có thể trả
+                    # goal tự do, source="user", type="question"... (trace
+                    # 30/10). Nếu validate raw trước, plan sẽ bị chặn
+                    # luôn và normalize không bao giờ được chạy.
+                    normalized = normalize_planner_args(tc.arguments)
+                    err = _validate_tool_args(tc.name, normalized)
+                    if err:
+                        _append_tool(messages, tc, {
+                            "tool": tc.name, "status": "UNKNOWN",
+                            "reason": err})
+                        continue
+                    try:
+                        planner = Planner(**normalized)
+                    except Exception as e:
+                        _append_tool(messages, tc, {
+                            "tool": tc.name, "status": "UNKNOWN",
+                            "reason": f"planner schema: {e}"})
+                        continue
+                    _append_tool(messages, tc, {
+                        "tool": tc.name, "status": "FOUND",
+                        "data": planner.model_dump()})
+                    continue
                 err = _validate_tool_args(tc.name, tc.arguments)
                 if err:
-                    messages.append({"role": "tool", "content": json.dumps(
-                        {"tool": tc.name, "status": "UNKNOWN", "reason": err},
-                        ensure_ascii=False)})
-                    continue
-                if tc.name == "plan_turn":
-                    try:
-                        planner = Planner(**tc.arguments)
-                    except Exception as e:
-                        messages.append({"role": "tool", "content": json.dumps(
-                            {"tool": tc.name, "status": "UNKNOWN",
-                             "reason": f"planner schema: {e}"},
-                            ensure_ascii=False)})
-                        continue
-                    messages.append({"role": "tool", "content": json.dumps(
-                        {"tool": tc.name, "status": "FOUND",
-                         "data": planner.model_dump()}, ensure_ascii=False)})
+                    _append_tool(messages, tc, {
+                        "tool": tc.name, "status": "UNKNOWN", "reason": err})
                     continue
                 if tc.name == "submit_final_reply":
                     try:
                         final = FinalReply(**tc.arguments).model_dump()
                     except Exception as e:
-                        messages.append({"role": "tool", "content": json.dumps(
-                            {"tool": tc.name, "status": "UNKNOWN",
-                             "reason": f"final schema: {e}"}, ensure_ascii=False)})
+                        _append_tool(messages, tc, {
+                            "tool": tc.name, "status": "UNKNOWN",
+                            "reason": f"final schema: {e}"})
                         continue
+                    # Đóng chuỗi tool call cho final để vòng repair sau
+                    # đó (nếu có) không gửi history dở dang lên OpenRouter.
+                    _append_tool(messages, tc, {
+                        "tool": tc.name, "status": "FOUND"})
                     break
                 if tc.name == "stop_or_insufficient":
                     stop_reason = tc.arguments.get("reason", "insufficient")
                     final = {"text": tc.arguments.get("draft_text") or
                              "Mình chưa đủ dữ kiện để trả lời chắc chắn phần này.",
                              "claims": [], "goal": "answer_question"}
+                    _append_tool(messages, tc, {
+                        "tool": tc.name, "status": "FOUND"})
                     break
                 # Tool thật: mở transaction ngắn trong executor, commit xong
                 # mới trả kết quả cho model (không giữ khóa khi chờ model).
                 tr = executor.execute(tc.name, tc.arguments)
-                messages.append({"role": "tool", "content": json.dumps(
-                    tr.model_dump(), ensure_ascii=False)})
+                _append_tool(messages, tc, tr.model_dump())
             if final is not None or stop_reason:
                 break
         if planner is None:
@@ -287,9 +336,16 @@ class Pipeline:
                 validator_errors.append(f"provider_error_on_repair: {e}")
                 break
             repaired = None
-            for tc in result.tool_calls:
-                if tc.name == "submit_final_reply":
-                    repaired = tc.arguments
+            if result.tool_calls:
+                # Đóng chuỗi tool call cho vòng repair, nếu không lần
+                # repair tiếp theo sẽ lại gửi history dở dang -> 400.
+                _assign_ids(result.tool_calls)
+                _append_assistant(messages, result)
+                for tc in result.tool_calls:
+                    if tc.name == "submit_final_reply":
+                        repaired = tc.arguments
+                    _append_tool(messages, tc, {
+                        "tool": tc.name, "status": "FOUND"})
             if repaired is not None:
                 final = repaired
             elif result.text:
