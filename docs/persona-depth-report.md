@@ -100,11 +100,51 @@ Branch này: `improve/persona-depth`. Không chạm MAT_Intent, không gửi Fac
   /admin/taxonomy, /admin, tạo draft (validator_errors=[]) đều OK. Server test đã tắt;
   server VM cổng 8000 vẫn chạy code cũ, chưa restart với code mới.
 
+## Phụ lục: lỗi live Luna 30/10 — model đoán sai tên key (đã sửa, commit sau 40644ac)
+
+Triệu chứng do Phước gửi (OpenRouterProvider, 3 calls, $0.000606): hỏi "Bác đang đi
+xe gì và mua lúc nào?" nhưng Luna trả "Mình chưa có thông tin xác nhận chính xác",
+dù fact đã seed sẵn (vehicle_model=Hyundai Creta, purchased_at=2024-03).
+
+Nguyên nhân gốc (đọc từ trace, không đoán): Luna gọi `get_persona_facts` với keys
+`vehicle, car, current_vehicle, vehicle_purchase_date, purchase_date, car_model,
+xe_dang_di, thoi_diem_mua_xe` — không key nào trùng registry thật. Engine cũ lọc
+exact-match nên trả NOT_FOUND rỗng, Luna kết luận không có dữ kiện và gọi
+`stop_or_insufficient`. Fake không bao giờ gặp lỗi này vì Fake gọi không truyền keys
+(lấy toàn bộ canon), nên toàn bộ test offline vẫn xanh trong khi live fail. Đây
+chính là khoảng cách live-vs-Fake đã cảnh báo ở bản báo cáo đầu.
+
+Fix (engine-first, không chỉ sửa prompt):
+- `tool_get_persona_facts`: synonym map (vehicle/car/car_model -> vehicle_model,
+  purchase_date/vehicle_purchase_date -> purchased_at, mau_xe -> vehicle_color...).
+- Fallback: nếu toàn bộ key yêu cầu đều lạ ngoài registry mà canon còn fact active
+  thì trả toàn bộ canon kèm reason `keys_unmatched_fallback_all`, thay vì [].
+- Giữ NOT_FOUND khi model hỏi đúng tên key trong registry nhưng fact chưa active
+  (VD: vehicle_color chưa propose) — để đường propose và test pending-isolation
+  không đổi ý nghĩa.
+- Tool description + SYSTEM_PROMPT: liệt kê registry key thật, khuyến nghị gọi
+  không truyền keys, và quy định: fact chưa có mà thuộc nhóm được tạo (màu xe,
+  sở thích, chuyến đi) thì PHẢI propose trước rồi trả lời, chỉ dùng
+  stop_or_insufficient khi thông tin bị khóa hoặc là giá/thông số chưa xác minh.
+- Test mới `tests/test_fact_key_tolerance.py` (4 test): đúng key list Luna đã gửi
+  -> trả đủ Creta + 2024-03; key lạ hoàn toàn -> fallback; key đúng tên nhưng
+  chưa active -> NOT_FOUND; provider giả lập đúng hành vi Luna trong trace ->
+  lượt đó giờ `sent` với "Creta 1.5 Cao cấp, mua từ tháng 03/2024".
+
+Lượt 2 trong transcript (màu xe -> review/handoff): không có trace kèm theo nên
+không khẳng định chắc chắn đường đi, nhưng cùng một gốc rễ giải thích được: claim
+"đi Creta" không có ref_id do fact retrieval fail -> validator error -> review.
+Sau fix, lượt màu xe phải đi đường propose (tạo vehicle_color rồi trả lời) thay
+vì review; cần Phước chạy lại live để xác nhận, vì prompt Luna vẫn có thể chọn
+đường khác.
+
 ## Chưa kiểm chứng (nói rõ, không nhận vơ)
 
 - Live Luna: VM không có OpenRouter key. `propose_story` bắt buộc tags/categories có
   thể làm Luna cũ trả sai schema — cần chạy `scripts/live_eval.py` trên máy có key và
-  xem Luna có tuân tags/categories không trước khi coi là xong.
+  xem Luna có tuân tags/categories không trước khi coi là xong. Fix key-guess ở
+  phụ lục trên mới chỉ kiểm chứng offline bằng provider giả lập đúng key list của
+  Luna, chưa chạy lại live.
 - Live Neon Postgres: migration 003 chưa chạy trên Postgres thật (chỉ review SQL).
 - Human review: human_gold vẫn trống; eval Fake không chứng minh Luna nói tự nhiên,
   không chứng minh khách thật cảm thấy được lắng nghe.

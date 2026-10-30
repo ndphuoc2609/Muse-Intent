@@ -57,7 +57,16 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_persona_facts",
-            "description": "Tìm facts của persona đang bound. Không truyền persona_id.",
+            "description": "Tìm facts của persona đang bound. Không truyền persona_id. "
+            "KHÔNG truyền keys để lấy toàn bộ canon active (khuyến nghị). "
+            "Nếu truyền keys, CHỈ dùng đúng tên key trong registry: "
+            "vehicle_model, vehicle_trim, purchased_at, is_first_car, "
+            "commute_route, weekend_route, vehicle_color, favorite_*, "
+            "trip_*, commute_*, weekend_*, experience_*, habit_*, memory_*. "
+            "Đừng tự đoán key khác (vehicle, car, purchase_date...): engine "
+            "có synonym map nhưng key lạ hoàn toàn sẽ fallback trả toàn bộ "
+            "canon, còn key đúng tên mà fact chưa active sẽ trả NOT_FOUND "
+            "để model đi đường propose.",
             "parameters": {
                 "type": "object",
                 "properties": {"keys": {"type": "array", "items": {"type": "string"}}},

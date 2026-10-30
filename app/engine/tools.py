@@ -190,14 +190,91 @@ class ToolExecutor:
             return self._err(name, f"{type(e).__name__}: {e}")
 
     # -- retrieval --
+    # Synonym map: Luna (live) đoán key theo ngôn ngữ tự nhiên, không
+    # biết registry thật (vehicle_model, purchased_at...). Không có map
+    # này, model hỏi đúng ý nhưng sai tên key -> NOT_FOUND rỗng -> nó
+    # kết luận "không có dữ kiện" và gọi stop_or_insufficient, dù fact
+    # đã seed sẵn. Đây là lỗi live 30/10: Luna hỏi xe + thời điểm mua
+    # bằng keys vehicle/car/purchase_date... và nhận về [].
+    FACT_KEY_SYNONYMS = {
+        "vehicle": "vehicle_model", "car": "vehicle_model",
+        "current_vehicle": "vehicle_model", "car_model": "vehicle_model",
+        "xe_dang_di": "vehicle_model", "xe": "vehicle_model",
+        "model": "vehicle_model",
+        "vehicle_trim": "vehicle_trim", "trim": "vehicle_trim",
+        "ban_xe": "vehicle_trim",
+        "vehicle_purchase_date": "purchased_at",
+        "purchase_date": "purchased_at", "purchased": "purchased_at",
+        "thoi_diem_mua_xe": "purchased_at", "mua_luc_nao": "purchased_at",
+        "is_first_car": "is_first_car", "xe_dau_doi": "is_first_car",
+        "first_car": "is_first_car",
+        "commute_route": "commute_route", "duong_di_lam": "commute_route",
+        "weekend_route": "weekend_route",
+        "vehicle_color": "vehicle_color", "mau_xe": "vehicle_color",
+        "color": "vehicle_color",
+    }
+
+    def _normalize_fact_key(self, key: str) -> str:
+        import re as _re
+        k = _re.sub(r"\s+", "_", (key or "").strip().lower())
+        return self.FACT_KEY_SYNONYMS.get(k, k)
+
     def tool_get_persona_facts(self, args):
         keys = args.get("keys") or []
         q = select(PersonaFact).where(
             PersonaFact.persona_id == self.persona_id,
             PersonaFact.status == "active")
+        all_rows = self.s.execute(q).scalars().all()
         if keys:
-            q = q.where(PersonaFact.fact_key.in_(keys))
-        rows = self.s.execute(q).scalars().all()
+            mapped = [self._normalize_fact_key(k) for k in keys]
+            matched = [r for r in all_rows if r.fact_key in mapped]
+            if matched:
+                rows = matched
+            else:
+                # Phân biệt hai trường hợp, không gộp thành một NOT_FOUND:
+                # (a) model hỏi đúng tên key trong registry nhưng fact
+                # chưa active (VD: vehicle_color chưa propose) -> NOT_FOUND
+                # để model đi đường propose, và để test pending-isolation
+                # (test_improvement) vẫn giữ nguyên ý nghĩa.
+                # (b) model đoán toàn key lạ ngoài registry (VD: vehicle,
+                # car, purchase_date) -> fallback trả toàn bộ canon active,
+                # kèm reason rõ ràng. Trả [] ở đây là nói dối model rằng
+                # persona không có dữ kiện, trong khi fact đã seed sẵn.
+                from ..config import CREATABLE_FACT_KEY_PREFIXES as _PFX
+                from ..config import LOCKED_FACT_KEYS as _LOCK
+                known = set(_LOCK) | {
+                    "vehicle_model", "vehicle_trim", "purchased_at",
+                    "is_first_car", "commute_route", "weekend_route"}
+                _all_keys = {r.fact_key for r in self.s.execute(
+                    select(PersonaFact).where(
+                        PersonaFact.persona_id == self.persona_id)
+                ).scalars().all()}
+
+                def _is_known(k: str) -> bool:
+                    return k in known or k.startswith(_PFX) or k in _all_keys
+                if any(_is_known(k) for k in mapped):
+                    return ToolResult(status="NOT_FOUND",
+                                      tool="get_persona_facts", data=[])
+                rows = all_rows
+                if not rows:
+                    return ToolResult(status="NOT_FOUND",
+                                      tool="get_persona_facts", data=[])
+                data = [{"id": r.id, "fact_key": r.fact_key, "value": r.value,
+                         "source": r.source, "version": r.version,
+                         "valid_from": r.valid_from, "valid_to": r.valid_to}
+                        for r in rows]
+                for r in rows:
+                    self.retrieved[r.id] = (
+                        "persona", r.value,
+                        {"status": "active", "fact_key": r.fact_key})
+                return ToolResult(status="FOUND", tool="get_persona_facts",
+                                  data=data,
+                                  reason="keys_unmatched_fallback_all: "
+                                         "requested keys không thuộc registry, "
+                                         "trả toàn bộ canon active thay vì []")
+            rows = matched
+        else:
+            rows = all_rows
         data = [{"id": r.id, "fact_key": r.fact_key, "value": r.value,
                  "source": r.source, "version": r.version,
                  "valid_from": r.valid_from, "valid_to": r.valid_to}
