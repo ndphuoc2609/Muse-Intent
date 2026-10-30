@@ -26,6 +26,11 @@ def canonical_view(session, story: PersonaStory) -> dict:
             StoryRevision.event_id == story.event_id,
             StoryRevision.status == "active")
         .order_by(StoryRevision.version)).scalars().all()
+    from ..models import TagAssignment as _TA
+    tags = session.execute(
+        select(_TA).where(
+            _TA.entity_type == "story", _TA.entity_id == story.event_id,
+            _TA.status == "active")).scalars().all()
     return {
         "event_id": story.event_id, "title": story.title,
         "summary": story.summary, "body": story.body,
@@ -35,6 +40,17 @@ def canonical_view(session, story: PersonaStory) -> dict:
         "event_date_precision": story.event_date_precision,
         "fictional_generated": story.fictional_generated,
         "status": story.status, "version": story.version,
+        "tags": [t.tag for t in tags],
+        "story_categories": story.story_categories or [],
+        "participants": story.participants or [],
+        "context": story.context_text,
+        "concern_or_choice": story.concern_or_choice,
+        "action": story.action_text,
+        "outcome": story.outcome_text,
+        "feeling_or_lesson": story.feeling_or_lesson,
+        "canonical_facts": story.canonical_facts or [],
+        "tellable_policy": story.tellable_policy or "on_relevance",
+        "related_need_topics": story.related_need_topics or [],
     }
 
 
@@ -59,6 +75,7 @@ class ToolExecutor:
         self.pending_story_ids: list[str] = []
         self.pending_addendum_ids: list[str] = []
         self.pending_customer_fact_ids: list[str] = []
+        self.pending_tag_assignment_ids: list[str] = []
 
     def activate_pending(self) -> None:
         """Chuyển mọi proposal của lượt này thành canon (chỉ gọi khi sent)."""
@@ -67,6 +84,11 @@ class ToolExecutor:
             row = self.s.get(PersonaFact, fid)
             if row is not None and row.status == "pending":
                 row.status = "active"
+        from ..models import TagAssignment as _TA2
+        for tid in self.pending_tag_assignment_ids:
+            trow = self.s.get(_TA2, tid)
+            if trow is not None and trow.status == "pending":
+                trow.status = "active"
         for eid in self.pending_story_ids:
             row = self.s.get(PersonaStory, eid)
             if row is not None and row.status == "pending":
@@ -120,10 +142,41 @@ class ToolExecutor:
             row = self.s.get(_CF, fid)
             if row is not None and row.status == "pending":
                 row.status = "rejected"
+        from ..models import TagAssignment as _TA3
+        for tid in self.pending_tag_assignment_ids:
+            trow = self.s.get(_TA3, tid)
+            if trow is not None and trow.status == "pending":
+                trow.status = "rejected"
         self.s.commit()
 
     def _err(self, name, reason):
         return ToolResult(status="UNKNOWN", tool=name, reason=reason)
+
+    def _add_pending_tags(self, entity_type: str, entity_id: str,
+                          tags: list | None) -> dict:
+        """Tạo TagAssignment pending cho tag đã biết; tag lạ không tự
+        thành taxonomy, trả về trong unknown để model/admin duyệt."""
+        from ..engine.taxonomy import is_known_tag as _known
+        from ..models import TagAssignment as _TA
+        accepted, unknown = [], []
+        for tag in tags or []:
+            if not _known(tag):
+                unknown.append(tag)
+                continue
+            existing = self.s.execute(
+                select(_TA).where(
+                    _TA.entity_type == entity_type,
+                    _TA.entity_id == entity_id,
+                    _TA.tag == tag)).scalars().first()
+            if existing is not None:
+                continue
+            row = _TA(entity_type=entity_type, entity_id=entity_id,
+                      tag=tag, source="generated", status="pending")
+            self.s.add(row)
+            self.s.commit()
+            self.pending_tag_assignment_ids.append(row.id)
+            accepted.append(tag)
+        return {"tags_accepted": accepted, "tags_unknown": unknown}
 
     def execute(self, name: str, args: dict) -> ToolResult:
         try:
@@ -231,7 +284,9 @@ class ToolExecutor:
                 {"id": f.id, "subject": f.subject, "relation": f.relation,
                  "predicate": f.predicate, "value_normalized": f.value_normalized,
                  "evidence": f.evidence, "source": f.source,
-                 "confidence": f.confidence} for f in facts],
+                 "confidence": f.confidence,
+                 "need_kind": f.need_kind, "certainty": f.certainty}
+                for f in facts],
             "questions": [
                 {"question_key": q.question_key, "question_text": q.question_text,
                  "status": q.status} for q in qs],
@@ -292,9 +347,12 @@ class ToolExecutor:
         self.pending_persona_fact_ids.append(row.id)
         self.retrieved[row.id] = ("persona", row.value,
                                   {"status": "pending", "fact_key": key})
+        tag_res = self._add_pending_tags("fact", row.id,
+                                         args.get("tags"))
         return ToolResult(status="FOUND", tool="propose_persona_fact",
                           data={"id": row.id, "fact_key": key,
-                                "value": row.value, "status": "pending"})
+                                "value": row.value, "status": "pending",
+                                **tag_res})
 
     def _evidence_matches_server_message(self, evidence: str) -> bool:
         """Evidence phải tồn tại trong message do server xác định:
@@ -342,6 +400,23 @@ class ToolExecutor:
         # Candidate pending: KHÔNG supersede fact cũ ngay. Supersede chỉ
         # xảy ra ở activate_pending() khi delivery thành công, và chỉ
         # khi cùng subject+predicate+relation (bố vs mẹ không ghi đè nhau).
+        # Customer need state: need_kind/certainty rõ ràng, không nâng
+        # hypothesis thành fact. Nếu model không nêu, suy ra từ predicate
+        # và source (stated -> explicit/high, inferred -> hypothesis/low
+        # khi predicate là suy luận, ngược lại medium).
+        _kind_map = {"intended_user": "intended_user",
+                     "use_case": "usage_context", "usage": "usage_context",
+                     "budget": "constraint", "concern": "concern",
+                     "worry": "concern", "preference": "preference",
+                     "like": "preference", "buying_interest": "explicit"}
+        need_kind = args.get("need_kind") or _kind_map.get(
+            args["predicate"], "explicit")
+        if args.get("source") == "inferred_context" and not args.get("need_kind"):
+            need_kind = "hypothesis"
+        certainty = args.get("certainty")
+        if not certainty:
+            certainty = "low" if need_kind == "hypothesis" else (
+                "high" if args.get("source", "stated") == "stated" else "medium")
         row = CustomerFact(
             thread_id=self.thread_id, actor_id=self.actor_id,
             subject=args["subject"], relation=args.get("relation"),
@@ -350,7 +425,7 @@ class ToolExecutor:
             evidence=args["evidence"],
             message_id=self.current_message_id,
             source=args.get("source", "stated"),
-            status="pending",
+            status="pending", need_kind=need_kind, certainty=certainty,
             confidence=float(args.get("confidence", 0.8)))
         self.s.add(row)
         self.s.commit()
@@ -359,7 +434,8 @@ class ToolExecutor:
                 "relation": row.relation, "predicate": row.predicate,
                 "value_normalized": row.value_normalized,
                 "evidence": row.evidence, "source": row.source,
-                "status": "pending", "message_id": row.message_id}
+                "status": "pending", "message_id": row.message_id,
+                "need_kind": row.need_kind, "certainty": row.certainty}
         self.saved_customer_facts.append(item)
         return ToolResult(status="FOUND", tool="propose_customer_fact",
                           data=item)
@@ -395,6 +471,18 @@ class ToolExecutor:
         # hard-cap để không chặn luồng demo; test concurrency kiểm tra
         # version/conflict, không phải cap này).
         # Candidate pending, chưa phải canon — activate khi sent.
+        # Luna PHẢI trả tags + phân loại (categories) để engine update DB:
+        # tags lạ không tự thành taxonomy, categories lạ bị chặn rõ ràng.
+        from ..engine.taxonomy import CATEGORIES as _CATS
+        cats = args.get("categories") or []
+        bad_cats = [c for c in cats if c not in _CATS]
+        if bad_cats:
+            return ToolResult(status="CONFLICT", tool="propose_story",
+                              reason=f"category chưa có trong taxonomy: {bad_cats}")
+        tellable = args.get("tellable_policy") or "on_relevance"
+        if tellable not in ("always", "on_relevance", "never"):
+            return ToolResult(status="CONFLICT", tool="propose_story",
+                              reason=f"tellable_policy không hợp lệ: {tellable}")
         row = PersonaStory(
             event_id="evt_" + uuid.uuid4().hex[:16],
             persona_id=self.persona_id, title=args.get("title", ""),
@@ -405,13 +493,30 @@ class ToolExecutor:
             event_date_precision=args.get("event_date_precision", "unknown"),
             fictional_generated=True,
             status="pending",
+            participants=args.get("participants") or [],
+            context_text=args.get("context"),
+            concern_or_choice=args.get("concern_or_choice"),
+            action_text=args.get("action"),
+            outcome_text=args.get("outcome"),
+            feeling_or_lesson=args.get("feeling_or_lesson"),
+            canonical_facts=args.get("canonical_facts") or [],
+            tellable_policy=tellable,
+            related_need_topics=args.get("related_need_topics") or [],
+            story_categories=cats,
             provenance="model_proposal")
         self.s.add(row)
         self.s.commit()
         self.pending_story_ids.append(row.event_id)
         self.retrieved[row.event_id] = (
             "story", row.summary + " " + row.body, {"status": "pending"})
+        tag_res = self._add_pending_tags("story", row.event_id,
+                                         args.get("tags"))
         item = canonical_view(self.s, row)
+        # canonical_view chỉ lấy tag active, nên cộng thêm tag pending
+        # của lượt này để model thấy đúng những gì nó vừa đề xuất.
+        item["tags"] = sorted(set(item.get("tags") or [])
+                              | set(tag_res["tags_accepted"]))
+        item = {**item, **tag_res}
         self.saved_stories.append(item)
         return ToolResult(status="FOUND", tool="propose_story", data=item,
                           ref_id=row.event_id)

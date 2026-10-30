@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Persona Admin — persona-dialogue</title>
+<style>
+:root{--bg:#f6f5f2;--surface:#fff;--surface-2:#faf9f7;--border:#e4e0d8;--border-strong:#cfc8bb;--text:#1c1a17;--muted:#6d675c;--accent:#0f766e;--accent-soft:#e6f2f0;--accent-text:#0b5e58;--warn-bg:#fff8e1;--warn-border:#e2c87a;--error:#b42318;--error-bg:#fdf0ef;--radius:12px;--radius-sm:8px;--shadow:0 1px 2px rgba(28,26,23,.06)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:"Segoe UI",Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6}
+h1{font-family:Georgia,serif;font-size:28px;margin:0}h2{font-family:Georgia,serif;font-size:19px;margin:0 0 4px}
+.wrap{max-width:1080px;margin:0 auto;padding:24px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;box-shadow:var(--shadow);margin-bottom:24px}
+.hint{color:var(--muted);font-size:13px;margin:0 0 16px}
+label{display:block;margin:12px 0 6px;font-weight:600;font-size:14px}
+input,select,textarea{width:100%;padding:11px 12px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:#fff;min-height:44px;font:inherit}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+button{min-height:44px;padding:10px 16px;border-radius:10px;border:0;background:var(--text);color:#fff;font-weight:600;cursor:pointer}
+button:disabled{background:#c9c4ba;cursor:not-allowed}
+button.secondary{background:var(--surface);color:var(--text);border:1px solid var(--border-strong)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.chip{border:1px solid var(--border);background:var(--surface-2);border-radius:999px;padding:4px 10px;font-size:13px}
+.err{border:1px solid #e8b4b0;background:var(--error-bg);border-radius:var(--radius);padding:12px 16px;color:var(--error)}
+.warn{border:1px solid var(--warn-border);background:var(--warn-bg);border-radius:var(--radius);padding:12px 16px}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:13px}
+.row{display:flex;gap:12px;flex-wrap:wrap}.row button{margin-top:12px}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{border-bottom:1px solid var(--border);padding:8px;text-align:left;vertical-align:top}
+</style></head>
+<body><main class="wrap">
+<h1>Persona Admin</h1>
+<p class="hint">Xem persona theo category/tags, timeline, story, validator, draft enrichment và retrieval log. Không cần đọc JSON dài. Dữ liệu là persona hư cấu cho sandbox.</p>
+<div class="card">
+<label for="persona">Persona</label>
+<select id="persona"><option value="hoang-nam">Hoàng Nam (Creta)</option><option value="minh-anh">Minh Anh (Tucson)</option></select>
+<div class="row"><button id="loadBtn">Xem persona</button><button class="secondary" id="seedBtn">Seed lại (idempotent)</button></div>
+<p id="loadMsg" class="hint" aria-live="polite"></p>
+</div>
+<div class="card"><h2>Hồ sơ &amp; góc nhìn</h2><div id="profile"></div></div>
+<div class="card"><h2>Timeline</h2><div id="timeline"></div></div>
+<div class="card"><h2>Stories (kèm tags / categories)</h2><div id="stories"></div></div>
+<div class="card"><h2>Validator &amp; khoảng trống</h2><div id="validator"></div></div>
+<div class="card"><h2>Tạo enrichment draft</h2>
+<p class="hint">Draft chỉ thành canon khi Publish và validator đạt. Tag/category lạ sẽ báo lỗi, không tự thành taxonomy.</p>
+<label for="draftKind">Loại</label>
+<select id="draftKind"><option value="fact">fact</option><option value="story">story</option><option value="perspective">perspective</option><option value="category">category</option></select>
+<label for="draftPayload">Payload (JSON)</label>
+<textarea id="draftPayload" rows="5" placeholder='{"fact_key": "favorite_route", "value": "Cầu Giấy - Mỹ Đình"}'></textarea>
+<label for="draftReason">Lý do</label><input id="draftReason" placeholder="Vì sao cần enrichment này?">
+<label for="draftTags">Tags (phân tách bằng dấu phẩy, phải có trong taxonomy)</label><input id="draftTags" placeholder="usage.city_commute">
+<div class="row"><button id="draftBtn">Tạo draft</button></div>
+<p id="draftMsg" class="hint" aria-live="polite"></p>
+</div>
+<div class="card"><h2>Drafts</h2><div id="drafts"></div></div>
+<div class="card"><h2>Retrieval log (50 lượt gần nhất)</h2><div id="retrieval"></div></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || ('HTTP ' + r.status));
+  return d;
+}
+async function load() {
+  const id = $('persona').value;
+  $('loadMsg').textContent = 'Đang tải...';
+  try {
+    const d = await api('/admin/personas/' + id);
+    const prof = d.profile || {};
+    $('profile').innerHTML = '<p><b>' + esc(d.display_name) + '</b>, ' + esc(d.age) + ' tuổi, ' + esc(d.region) + ' — <b>persona hư cấu</b>, stance: ' + esc(d.stance) + '</p>'
+      + '<p>Nghề: ' + esc(prof.occupation) + ' · Nhịp sinh hoạt: ' + esc(prof.daily_rhythm) + ' · Gia đình: ' + esc(prof.family_structure) + ' · Sở hữu: ' + esc(prof.ownership_status) + '</p>'
+      + '<p>Bối cảnh: ' + esc(prof.purchase_context) + '</p>'
+      + '<div class="chips">' + d.categories.map(c => '<span class="chip">' + esc(c) + '</span>').join('') + '</div>'
+      + '<h3>Góc nhìn</h3><ul>' + d.perspectives.map(p => '<li><b>' + esc(p.aspect) + ':</b> ' + esc(p.content) + (p.prior_content ? ' <i>(trước đây: ' + esc(p.prior_content) + ')</i>' : '') + '</li>').join('') + '</ul>'
+      + '<h3>Facts</h3><ul>' + d.facts.map(f => '<li><b>' + esc(f.fact_key) + '</b> = ' + esc(f.value) + ' <span class="chip">' + f.tags.map(esc).join('</span> <span class="chip">') + '</span></li>').join('') + '</ul>';
+    $('timeline').innerHTML = '<ul>' + d.timeline.map(t => '<li>' + esc(t.date) + ' — ' + esc(t.label) + '</li>').join('') + '</ul>';
+    $('stories').innerHTML = d.stories.length ? d.stories.map(s => '<div style="border-top:1px solid var(--border);padding:12px 0"><b>' + esc(s.title || s.summary) + '</b><p>' + esc(s.summary) + '</p><div class="chips">' + (s.tags || []).map(t => '<span class="chip">tag: ' + esc(t) + '</span>').join('') + (s.story_categories || []).map(c => '<span class="chip">category: ' + esc(c) + '</span>').join('') + '</div><p class="hint">Kể được: ' + esc(s.tellable_policy) + ' · Liên quan nhu cầu: ' + esc((s.related_need_topics || []).join(', ')) + '</p></div>').join('') : '<p class="hint">Chưa có story canon — story sẽ xuất hiện qua propose trong hội thoại.</p>';
+    const v = d.validator || {};
+    $('validator').innerHTML = (v.errors && v.errors.length ? '<div class="err"><b>Errors:</b><ul>' + v.errors.map(e => '<li>' + esc(e) + '</li>').join('') + '</ul></div>' : '<p>Không có validator error.</p>')
+      + (v.warnings && v.warnings.length ? '<div class="warn"><b>Warnings:</b><ul>' + v.warnings.map(e => '<li>' + esc(e) + '</li>').join('') + '</ul></div>' : '')
+      + '<p class="hint">Khoảng trống: ' + esc(JSON.stringify(d.gaps)) + '</p>';
+    const drafts = await api('/admin/personas/' + id + '/drafts');
+    $('drafts').innerHTML = drafts.length ? drafts.map(dr => '<div style="border-top:1px solid var(--border);padding:12px 0"><b>' + esc(dr.kind) + '</b> — ' + esc(dr.status) + '<pre>' + esc(JSON.stringify(dr.payload)) + '</pre><p class="hint">Validator: ' + esc(JSON.stringify(dr.validator_errors)) + '</p><div class="row"><button data-publish="' + esc(dr.draft_id) + '">Publish</button><button class="secondary" data-reject="' + esc(dr.draft_id) + '">Reject</button></div></div>').join('') : '<p class="hint">Chưa có draft.</p>';
+    document.querySelectorAll('[data-publish]').forEach(b => b.addEventListener('click', async () => { try { await api('/admin/drafts/' + b.dataset.publish + '/publish', {method: 'POST'}); await load(); } catch (e) { alert(e.message); } }));
+    document.querySelectorAll('[data-reject]').forEach(b => b.addEventListener('click', async () => { await api('/admin/drafts/' + b.dataset.reject + '/reject', {method: 'POST'}); await load(); }));
+    const ret = await api('/admin/personas/' + id + '/retrieval');
+    $('retrieval').innerHTML = ret.length ? '<table><tr><th>Thread/actor</th><th>Entity</th><th>Điểm</th><th>Lý do</th></tr>' + ret.map(r => '<tr><td>' + esc(r.thread_id) + ' / ' + esc(r.actor_id) + '</td><td>' + esc(r.entity_id) + '</td><td>' + esc(r.score) + '</td><td>' + esc(r.reason) + '</td></tr>').join('') + '</table>' : '<p class="hint">Chưa có retrieval nào.</p>';
+    $('loadMsg').textContent = 'Đã tải xong.';
+  } catch (e) { $('loadMsg').textContent = 'Lỗi: ' + e.message; }
+}
+$('loadBtn').addEventListener('click', load);
+$('persona').addEventListener('change', load);
+$('seedBtn').addEventListener('click', async () => { await api('/seed', {method: 'POST'}); await load(); });
+$('draftBtn').addEventListener('click', async () => {
+  let payload; try { payload = JSON.parse($('draftPayload').value || '{}'); } catch (e) { $('draftMsg').textContent = 'Payload không phải JSON hợp lệ.'; return; }
+  const tags = $('draftTags').value.split(',').map(s => s.trim()).filter(Boolean);
+  try {
+    const d = await api('/admin/personas/' + $('persona').value + '/drafts', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({kind: $('draftKind').value, payload, reason: $('draftReason').value, proposed_tags: tags})});
+    $('draftMsg').textContent = 'Đã tạo draft ' + d.draft_id + '. Validator: ' + JSON.stringify(d.validator_errors);
+    await load();
+  } catch (e) { $('draftMsg').textContent = 'Lỗi: ' + e.message; }
+});
+load();
+</script></body></html>

@@ -108,7 +108,8 @@ TOOLS = [
         "function": {
             "name": "propose_persona_fact",
             "description": "Đề xuất tạo persona fact mới. Engine kiểm tra key có được "
-            "phép tạo, không khóa, không mâu thuẫn trước khi lưu.",
+            "phép tạo, không khóa, không mâu thuẫn trước khi lưu. Có thể "
+            "kèm tags (chỉ tag trong taxonomy mới được chấp nhận).",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -116,6 +117,7 @@ TOOLS = [
                     "value": {"type": "string"},
                     "evidence": {"type": "string"},
                     "source": {"type": "string"},
+                    "tags": {"type": "array", "items": {"type": "string"}},
                 },
                 "required": ["fact_key", "value"],
             },
@@ -126,7 +128,10 @@ TOOLS = [
         "function": {
             "name": "propose_customer_fact",
             "description": "Đề xuất lưu một customer fact. Engine kiểm chứng subject, "
-            "evidence và supersede bản cũ trước khi lưu.",
+            "evidence và supersede bản cũ trước khi lưu. need_kind phân "
+            "biệt explicit/preference/concern/constraint/intended_user/"
+            "usage_context/hypothesis/declined/opt_out; hypothesis không "
+            "được nâng thành fact. certainty: high/medium/low.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -138,6 +143,8 @@ TOOLS = [
                     "evidence": {"type": "string"},
                     "source": {"type": "string"},
                     "confidence": {"type": "number"},
+                    "need_kind": {"type": "string"},
+                    "certainty": {"type": "string"},
                 },
                 "required": ["subject", "predicate", "value_raw", "evidence"],
             },
@@ -147,8 +154,12 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "propose_story",
-            "description": "Đề xuất story hư cấu mới. Engine kiểm tra trùng/mâu thuẫn/"
-            "timeline trước khi lưu; chỉ sau khi lưu mới được đưa vào reply.",
+            "description": "Đề xuất story hư cấu mới. BẮT BUỘC trả tags + categories "
+            "để engine update DB (tags chỉ tag trong taxonomy, categories "
+            "chỉ category trong taxonomy; tag/category lạ bị chặn hoặc "
+            "vào draft, không tự thành taxonomy). Engine kiểm tra trùng/"
+            "mâu thuẫn/timeline trước khi lưu; chỉ sau khi lưu mới được "
+            "đưa vào reply. tellable_policy: always/on_relevance/never.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -159,8 +170,20 @@ TOOLS = [
                     "event_date": {"type": ["string", "null"]},
                     "event_date_precision": {"type": "string"},
                     "entities": {"type": "object"},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                    "categories": {"type": "array", "items": {"type": "string"}},
+                    "participants": {"type": "array"},
+                    "context": {"type": ["string", "null"]},
+                    "concern_or_choice": {"type": ["string", "null"]},
+                    "action": {"type": ["string", "null"]},
+                    "outcome": {"type": ["string", "null"]},
+                    "feeling_or_lesson": {"type": ["string", "null"]},
+                    "canonical_facts": {"type": "array"},
+                    "tellable_policy": {"type": "string"},
+                    "related_need_topics": {"type": "array",
+                                            "items": {"type": "string"}},
                 },
-                "required": ["summary", "body"],
+                "required": ["summary", "body", "tags", "categories"],
             },
         },
     },

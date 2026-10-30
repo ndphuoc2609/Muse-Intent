@@ -292,6 +292,37 @@ là giống nhau, đã có test riêng cho trường hợp nhiều xe -> ambiguo
 - Giới hạn story/ngày/persona có trong config nhưng chưa hard-cap trong
   tool (tránh chặn demo); version/conflict mới là rào chắn đã test.
 
+## 9b. Persona-depth (branch improve/persona-depth, base main 5a97ccc)
+
+Persona có chiều sâu, nhất quán, khơi gợi nhu cầu tự nhiên — không chỉ sửa prompt:
+
+- **Schema + migration 003:** profile/perspective/style (NULL = chưa biết), category,
+  tag taxonomy v1 (7 categories, 22 tags), enrichment draft, story links, retrieval log;
+  story có participants/context/concern/action/outcome/feeling/canonical_facts/
+  tellable_policy/related_need_topics/story_categories; customer fact có need_kind/certainty.
+- **Luna → DB:** `propose_story` BẮT BUỘC trả `tags` + `categories` (tag/category lạ bị
+  chặn, không tự thành taxonomy); tag pending chỉ active khi reply gửi thành công.
+- **Retrieval theo ngữ cảnh:** tag/category/entity trước, không đổ toàn bộ persona vào
+  prompt; lọc tellable=never và story đã supersedes; ưu tiên chưa kể; tối đa 3 evidence,
+  ghi `retrieval_logs` và đưa ref_id vào trace.
+- **Validator persona:** bắt timeline trước purchased_at, product fact lẫn vào canon,
+  generated gắn nhãn verified, story never đã kể; phân biệt thay đổi quan điểm
+  (changed_view cần prior_content) với mâu thuẫn, và cùng nơi khác ngày không phải conflict.
+- **Enrichment:** draft → validate → publish; trường khóa không được tạo; không tự tạo
+  số tiền/đại lý/lịch bảo dưỡng/thông số như dữ liệu thật.
+- **Customer need state:** hypothesis không nâng thành fact; "đang tham khảo" không thành
+  "mua ngay"; tag family không suy ra có con hay cần 7 chỗ.
+- **Runtime prompt v1:** PERSONA_CORE, STYLE_GUIDE, RELEVANT_PERSONA_FACTS,
+  RELEVANT_MEMORIES, PRODUCT_FACTS, CUSTOMER_STATE, VERIFIED_CONVERSATION_CONTEXT,
+  CONVERSATION_POLICY (8 hướng đáp, tối đa 1 câu hữu ích/lượt).
+- **Hai persona distinct + seed idempotent:** Hoàng Nam (Creta, xe đầu đời; màu/chuyến
+  chỉ qua propose) và Minh Anh (Tucson, đã đổi xe, gia đình có con nhỏ, story Vũng Tàu
+  hoàn chỉnh, price mẫu 769 riêng). Admin: mở `/admin` để xem profile, timeline, story,
+  validator, draft, retrieval log. Báo cáo đầy đủ: `docs/persona-depth-report.md`.
+- **Kiểm chứng:** pytest 63 passed, synthetic 10/10, improvement eval 11/11,
+  persona-depth eval 7/7 (tất cả Fake — không phải bằng chứng Luna thật; live Luna và
+  live Neon vẫn chưa kiểm chứng).
+
 ## 10. Khác biệt với MAT_Intent (để không mang giới hạn cũ sang)
 
 - Không có `SEED_FACTS` mặc định làm giá thật: mọi product fact mẫu đều

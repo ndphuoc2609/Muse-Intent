@@ -12,10 +12,16 @@ from sqlalchemy import select
 
 from .config import SETTINGS
 from .db import init_db, make_engine, session_factory
+from .engine.enrichment import find_gaps, publish_draft, validate_draft
 from .engine.fake_sender import FakeSender
+from .engine.persona_validator import validate_persona
 from .engine.pipeline import Pipeline
+from .engine.taxonomy import CATEGORIES, TAGS, TAXONOMY_VERSION
 from .engine.tools import canonical_view
-from .models import Message, Persona, PersonaFact, PersonaStory, Thread
+from .models import (EnrichmentDraft, Message, Persona, PersonaCategory,
+                     PersonaFact, PersonaPerspective, PersonaProfile,
+                     PersonaStory, PersonaStyleGuide, RetrievalLog,
+                     TagAssignment, Thread)
 from .providers.openrouter import make_provider
 from .schemas import TurnRequest
 from .seed import seed
@@ -193,9 +199,172 @@ def revoke_fact(persona_id: str, fact_id: str):
         return {"fact_id": fact_id, "status": "revoked"}
 
 
+# ---- Admin persona-depth (§11): xem profile/timeline/story/tags,
+# draft enrichment, validator, retrieval log — không cần đọc JSON dài.
+@app.get("/admin/taxonomy")
+def admin_taxonomy():
+    return {"version": TAXONOMY_VERSION, "categories": CATEGORIES, "tags": TAGS}
+
+
+@app.get("/admin/personas/{persona_id}")
+def admin_persona(persona_id: str):
+    with _session() as s:
+        p = s.get(Persona, persona_id)
+        if not p:
+            raise HTTPException(404, "persona không tồn tại")
+        profile = s.get(PersonaProfile, persona_id)
+        persps = s.execute(
+            select(PersonaPerspective).where(
+                PersonaPerspective.persona_id == persona_id,
+                PersonaPerspective.status == "active")).scalars().all()
+        style = s.get(PersonaStyleGuide, persona_id)
+        cats = s.execute(
+            select(PersonaCategory).where(
+                PersonaCategory.persona_id == persona_id,
+                PersonaCategory.status == "active")).scalars().all()
+        facts = s.execute(
+            select(PersonaFact).where(
+                PersonaFact.persona_id == persona_id,
+                PersonaFact.status == "active")).scalars().all()
+        stories = s.execute(
+            select(PersonaStory).where(
+                PersonaStory.persona_id == persona_id,
+                PersonaStory.status == "active")).scalars().all()
+        # Timeline: purchased_at + story theo ngày (unknown ở cuối).
+        timeline = []
+        for f in facts:
+            if f.fact_key == "purchased_at":
+                timeline.append({"date": f.value, "kind": "purchase",
+                                 "label": f"Mua xe ({f.value})"})
+        for st in stories:
+            timeline.append({"date": st.event_date or "unknown",
+                             "kind": "story", "event_id": st.event_id,
+                             "label": st.title or st.summary})
+        timeline.sort(key=lambda d: (d["date"] == "unknown", d["date"]))
+        return {
+            "id": p.id, "display_name": p.display_name, "age": p.age,
+            "region": p.region, "stance": p.stance,
+            "is_fictional": p.is_fictional,
+            "profile": None if not profile else {
+                "occupation": profile.occupation,
+                "daily_rhythm": profile.daily_rhythm,
+                "family_structure": profile.family_structure,
+                "ownership_status": profile.ownership_status,
+                "purchase_context": profile.purchase_context,
+                "spending_limit_note": profile.spending_limit_note},
+            "perspectives": [{"aspect": x.aspect, "content": x.content,
+                              "prior_content": x.prior_content}
+                             for x in persps],
+            "style_guide": None if not style else {
+                "address_form": style.address_form,
+                "answer_length": style.answer_length,
+                "intimacy": style.intimacy, "emoji_use": style.emoji_use,
+                "storytelling": style.storytelling,
+                "proactive_question_level": style.proactive_question_level,
+                "avoid_patterns": style.avoid_patterns,
+                "style_examples": style.style_examples},
+            "categories": [c.category_code for c in cats],
+            "facts": [{"id": f.id, "fact_key": f.fact_key, "value": f.value,
+                       "source": f.source,
+                       "tags": [t.tag for t in s.execute(
+                           select(TagAssignment).where(
+                               TagAssignment.entity_type == "fact",
+                               TagAssignment.entity_id == f.id,
+                               TagAssignment.status == "active")).scalars().all()]}
+                      for f in facts],
+            "stories": [canonical_view(s, st) for st in stories],
+            "timeline": timeline,
+            "validator": validate_persona(s, persona_id),
+            "gaps": find_gaps(s, persona_id),
+        }
+
+
+class DraftRequest(BaseModel):
+    kind: str
+    payload: dict
+    reason: str = ""
+    anchor_refs: list = []
+    proposed_tags: list[str] = []
+    proposed_categories: list[str] = []
+    conditions: list = []
+    conflicts: list = []
+
+
+@app.post("/admin/personas/{persona_id}/drafts")
+def admin_create_draft(persona_id: str, req: DraftRequest):
+    with _session() as s:
+        if not s.get(Persona, persona_id):
+            raise HTTPException(404, "persona không tồn tại")
+        d = EnrichmentDraft(
+            persona_id=persona_id, kind=req.kind, payload=req.payload,
+            reason=req.reason, anchor_refs=req.anchor_refs,
+            proposed_tags=req.proposed_tags,
+            proposed_categories=req.proposed_categories,
+            conditions=req.conditions, conflicts=req.conflicts)
+        s.add(d)
+        s.commit()
+        errs = validate_draft(s, d)
+        d.validator_errors = errs
+        s.commit()
+        return {"draft_id": d.id, "status": d.status,
+                "validator_errors": errs}
+
+
+@app.get("/admin/personas/{persona_id}/drafts")
+def admin_list_drafts(persona_id: str):
+    with _session() as s:
+        rows = s.execute(
+            select(EnrichmentDraft).where(
+                EnrichmentDraft.persona_id == persona_id)
+            .order_by(EnrichmentDraft.created_at.desc())).scalars().all()
+        return [{"draft_id": r.id, "kind": r.kind, "payload": r.payload,
+                 "reason": r.reason, "proposed_tags": r.proposed_tags,
+                 "proposed_categories": r.proposed_categories,
+                 "status": r.status, "validator_errors": r.validator_errors}
+                for r in rows]
+
+
+@app.post("/admin/drafts/{draft_id}/publish")
+def admin_publish_draft(draft_id: str):
+    with _session() as s:
+        out = publish_draft(s, draft_id)
+        if not out["ok"]:
+            raise HTTPException(400, "; ".join(out["errors"]))
+        return out
+
+
+@app.post("/admin/drafts/{draft_id}/reject")
+def admin_reject_draft(draft_id: str):
+    with _session() as s:
+        d = s.get(EnrichmentDraft, draft_id)
+        if not d:
+            raise HTTPException(404, "draft không tồn tại")
+        d.status = "rejected"
+        s.commit()
+        return {"draft_id": draft_id, "status": "rejected"}
+
+
+@app.get("/admin/personas/{persona_id}/retrieval")
+def admin_retrieval(persona_id: str):
+    with _session() as s:
+        rows = s.execute(
+            select(RetrievalLog).where(
+                RetrievalLog.persona_id == persona_id)
+            .order_by(RetrievalLog.created_at.desc()).limit(50)).scalars().all()
+        return [{"thread_id": r.thread_id, "actor_id": r.actor_id,
+                 "entity_type": r.entity_type, "entity_id": r.entity_id,
+                 "reason": r.reason, "score": r.score, "rank": r.rank,
+                 "created_at": str(r.created_at)} for r in rows]
+
+
 STATIC = Path(__file__).parent / "static"
 if STATIC.exists():
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+@app.get("/admin")
+def admin_page():
+    return FileResponse(STATIC / "admin.html")
 
 
 @app.get("/")

@@ -11,7 +11,10 @@ def test_valid_product_fact(pipe):
 
 def test_expired_fact_not_used(pipe, session):
     # Hết hạn: đổi valid_to về quá khứ, tool không trả active nữa.
-    f = session.query(ProductFact).filter_by(fact_type="price").first()
+    # Chỉ rõ model Creta: seed giờ có thêm price Tucson (769) cho persona
+    # thứ hai, nên .first() không còn chắc là Creta nữa.
+    f = session.query(ProductFact).filter_by(
+        model="Hyundai Creta", fact_type="price").first()
     f.valid_to = "2020-01-01"
     session.commit()
     r = turn(pipe, "Giá Creta bản cao nhất bao nhiêu?")
@@ -20,8 +23,15 @@ def test_expired_fact_not_used(pipe, session):
 
 def test_wrong_model_not_returned(pipe, session):
     ex = ToolExecutor(session, "hoang-nam", "t", "actor-1")
-    r = ex.execute("get_product_facts", {"model": "Hyundai Tucson"})
+    # Tucson giờ có product fact riêng (769) cho persona thứ hai, nên
+    # model không có fact phải là một model khác hẳn.
+    r = ex.execute("get_product_facts", {"model": "Hyundai Santa Fe"})
     assert r.status == "NOT_FOUND"
+    # Isolation: Tucson trả đúng giá của nó, không lẫn giá Creta (599).
+    r2 = ex.execute("get_product_facts", {"model": "Hyundai Tucson"})
+    assert r2.status == "FOUND"
+    assert any("769" in (d.get("value_text") or "")
+               for d in r2.data if isinstance(d, dict))
 
 
 def test_conflicting_product_facts(pipe, session):

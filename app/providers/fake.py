@@ -301,7 +301,22 @@ class FakeProvider:
                 "event_date_precision": "unknown",
                 "entities": {"vehicle": "Hyundai Creta",
                              "places": ["Cầu Giấy", "Nam Định"],
-                             "persons": []}}))
+                             "persons": []},
+                # Fake cũng phải tuân contract Luna: story phải kèm
+                # tags + categories để engine update DB.
+                "tags": ["usage.long_distance_trip",
+                         "usage.family_weekend",
+                         "experience.long_distance_trip"],
+                "categories": ["family_daily_use", "frequent_road_trip"],
+                "participants": [{"name": "gia đình", "relation": "family"}],
+                "context": "Cuối tuần về Nam Định thăm nhà.",
+                "concern_or_choice": "Đi xa có mệt không, cốp có đủ đồ không.",
+                "action": "Lái Creta về Nam Định cuối tuần.",
+                "outcome": "Đường trường êm, người ngồi sau không mệt.",
+                "feeling_or_lesson": "Đi xa cùng gia đình thoải mái hơn mình nghĩ.",
+                "canonical_facts": ["Đi Creta về Nam Định cuối tuần"],
+                "tellable_policy": "on_relevance",
+                "related_need_topics": ["family_trip", "long_distance_trip"]}))
         if stories and any(i["type"] == "ask_persona" and
                            ("cung ai" in _strip(i["normalized"]) or
                             "cung" in _strip(i["evidence"]))

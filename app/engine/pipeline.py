@@ -26,7 +26,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from ..config import SETTINGS
-from ..models import (Actor, Delivery, Message, Persona, PersonaStory,
+from ..models import (Actor, Delivery, Message, Persona, PersonaProfile,
+                      PersonaPerspective, PersonaStory, PersonaStyleGuide,
                       QuestionState, StoryTold, Thread)
 from .typed_values import (find_money, parse_dates, parse_distance_km,
                            parse_percent)
@@ -313,11 +314,29 @@ class Pipeline:
         # lại đúng câu vừa hỏi ở lượt trước.
         # Giữ nguyên block system (FakeProvider vẫn parse pending question
         # và xe trong bài từ đó), chỉ thêm history dạng message thật.
-        messages: list[dict] = [
-            {"role": "system",
-             "content": _context_block(persona, thread, history, pending_qs,
+        # Runtime prompt v1 (§10): PERSONA_CORE + STYLE_GUIDE + policy,
+        # cộng thêm _context_block cũ để Fake vẫn parse được pending
+        # question / xe trong bài từ system block.
+        _profile = self.s.get(PersonaProfile, req.persona_id)
+        _persps = self.s.execute(
+            select(PersonaPerspective).where(
+                PersonaPerspective.persona_id == req.persona_id,
+                PersonaPerspective.status == "active")).scalars().all()
+        _style = self.s.get(PersonaStyleGuide, req.persona_id)
+        from .runtime_prompt import build_runtime_prompt as _build_rp
+        _cust_state_text = (
+            "Explicit: " + ", ".join(
+                f"{f.subject}:{f.predicate}={f.value_normalized}"
+                for f in cust_facts) or "(không có)") + (
+            f"\nCâu hỏi đã từ chối: {', '.join(declined_keys) or '(không có)'}"
+            "\nOpt-out: (xác định sau planner)")
+        _rp = _build_rp(persona, _profile, list(_persps), _style, [],
+                        [], [], _cust_state_text,
+                        _context_block(persona, thread, history, pending_qs,
                                        cust_facts, actor=actor,
-                                       declined_qs=declined_qs)},
+                                       declined_qs=declined_qs))
+        messages: list[dict] = [
+            {"role": "system", "content": _rp["text"]},
         ]
         for m in history:
             if m.id == user_msg.id:
@@ -328,6 +347,7 @@ class Pipeline:
                 messages.append({"role": "assistant", "content": m.text})
         messages.append({"role": "user", "content": req.text})
         tool_calls_log: list[dict] = []
+        trace_retrieval: list[dict] = []
         planner: Planner | None = None
         final: dict | None = None
         stop_reason: str | None = None
@@ -411,6 +431,44 @@ class Pipeline:
                     _append_tool(messages, tc, {
                         "tool": tc.name, "status": "FOUND",
                         "data": planner.model_dump()})
+                    # Server-side retrieval (§7): sau plan, engine truy
+                    # xuất story theo tag/entity, ghi log, đưa ref_id
+                    # vào executor.retrieved để model claim được, và
+                    # cập nhật system message đầu (không thêm system
+                    # message mới làm Fake mất context cũ).
+                    if not getattr(self, "_server_retrieval_done", False):
+                        self._server_retrieval_done = True
+                        try:
+                            from .retrieval import (
+                                derive_wanted_tags, log_retrieval,
+                                retrieve_stories)
+                            _wt, _wc = derive_wanted_tags(
+                                req.text, planner)
+                            _retell = any(
+                                k in req.text.lower()
+                                for k in ("kể lại", "lại chuyến", "chuyến đó"))
+                            _ev = retrieve_stories(
+                                self.s, req.persona_id, thread.id,
+                                req.actor_id, query_text=req.text,
+                                wanted_tags=_wt, wanted_categories=_wc,
+                                retell_requested=_retell, limit=3)
+                            if _ev:
+                                log_retrieval(self.s, req.persona_id,
+                                              thread.id, req.actor_id, _ev)
+                                for _d in _ev:
+                                    executor.retrieved[_d["event_id"]] = (
+                                        "story", _d["summary"] + " " + _d["body"],
+                                        {"status": "active"})
+                                messages[0]["content"] += (
+                                    "\n\nRELEVANT_MEMORIES (server retrieval, "
+                                    "chỉ kể khi liên quan):\n" + "\n".join(
+                                        f"- [{_d['event_id']}] {_d['summary']} "
+                                        f"(tags={_d['tags']}, đã kể: {_d['told_before']}, "
+                                        f"lý do: {'; '.join(_d['reasons'])})"
+                                        for _d in _ev))
+                                trace_retrieval = _ev
+                        except Exception:
+                            pass
                     continue
                 err = _validate_tool_args(tc.name, tc.arguments)
                 if err:
@@ -459,6 +517,7 @@ class Pipeline:
             "http_attempts": http_attempts,
             "latency_s": round(time.time() - started, 3),
             "provider": type(self.provider).__name__,
+            "retrieval_evidence": trace_retrieval,
         }
         if final is None:
             msg = Message(thread_id=thread.id, role="persona", text="",
