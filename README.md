@@ -16,28 +16,42 @@ persona hư cấu, không phải người thật.
 Khách (sandbox UI / API)
   -> FastAPI (api.py): xác minh binding persona/post/thread/actor
   -> Pipeline (engine/pipeline.py)
-       1. Idempotency-Key: trùng key + đã sent -> replay, không gửi lại;
-          trùng key + gửi lỗi -> gửi lại đúng draft cũ, không tạo story mới.
+       1. Idempotency-Key (scoped, bảng turn_idempotency): cùng thread +
+          actor + payload -> replay; cùng key khác payload -> conflict rõ
+          ràng, không replay im lặng; khác thread -> lượt mới. Trùng key +
+          gửi lỗi -> gửi lại đúng draft cũ, không tạo story mới.
        2. Tool loop với provider (tối đa MAX_TOOL_ROUNDS, không giữ
           transaction DB khi chờ model):
             plan_turn  (planner là tool ĐẦU TIÊN trong cùng vòng tool
                         calling, không thêm 1 LLM call riêng — lý do:
                         giảm latency + chi phí, planner vẫn tường minh
-                        trước mọi retrieval)
+                        trước mọi retrieval; tool trước plan bị chặn,
+                        không thực thi)
             -> get_persona_facts / get_persona_stories / get_product_facts
                / get_customer_state   (scope do server xác định)
             -> propose_persona_fact / propose_customer_fact
                / propose_story / propose_addendum
-               (engine kiểm chứng rồi MỚI lưu, rồi model mới được dùng)
+               (engine kiểm chứng rồi lưu ở trạng thái PENDING, chưa phải
+               canon; chỉ activate khi delivery thành công, ngược lại reject)
             -> submit_final_reply | stop_or_insufficient
+            (text thuần không qua submit_final_reply chỉ được chấp nhận
+            khi là xã giao thuần túy, còn lại là lỗi protocol)
        3. Validator (engine/validator.py): claim phải có ref_id từ tool
-          result của lượt; chặn xác nhận cọc, xin SĐT/địa chỉ nhà ở kênh
-          public, hỏi lại khi opt-out; repair tối đa MAX_VALIDATOR_REPAIRS
-          vòng, hết vòng -> status review (không tự thay câu chung chung).
+          result của lượt và khớp giá trị THEO KIỂU (tiền/ngày/%/km);
+          khẳng định có dữ kiện trong văn bản phải được claim bao phủ;
+          chặn xác nhận cọc, xin SĐT/địa chỉ nhà ở kênh public, hỏi lại
+          khi opt-out, product sample không ghi rõ là mẫu; repair tối đa
+          MAX_VALIDATOR_REPAIRS vòng, hết vòng -> status review (không tự
+          thay câu chung chung).
        4. Cập nhật QuestionState: chỉ ANSWERED khi planner nêu đúng key;
-          trả lời sang chủ đề khác -> redirected, không đánh dấu đã trả lời.
-       5. FakeSender: chỉ khi sent mới ghi Delivery + told_in_message_id.
-          Gửi lỗi -> status error, story đã lưu vẫn chưa bị đánh dấu đã kể.
+          chuyển chủ đề giữ nguyên pending, không tự redirected; followup
+          chỉ được tạo khi delivery thành công.
+       5. FakeSender: chỉ khi sent mới activate proposals, ghi Delivery +
+          told_in_message_id + story_told (kể cả story truy xuất lại).
+          Gửi lỗi -> status error, proposals bị reject, story chưa bị
+          đánh dấu đã kể.
+       Chi tiết đầy đủ: docs/improvement-report.md (branch
+       improve/claim-history-idempotency, 2026-10-30).
   -> Message (draft/sent/review/error) + trace đầy đủ cho sandbox
 ```
 

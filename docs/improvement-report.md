@@ -4,6 +4,8 @@ Ngày: 2026-10-30. Base: `main` @ `0b70ea071242da592e649b629abc9d0d66ae681f`
 (phiên bản đã có fix history last-20 + idempotency UI badge).
 Branch: `improve/claim-history-idempotency` (từ base trên, không force-push,
 không chạm `main`, không chạm repo MAT_Intent cũ, không tích hợp Facebook/Meta thật).
+Commit cải thiện: `009d87f4df33577276aeb2a7b4b29cc8ecffc457`
+(commit này cập nhật báo cáo với hash đó sẽ là commit tiếp theo trên branch).
 
 ## Tóm tắt: đã sửa cái gì, vì sao
 
