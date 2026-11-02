@@ -21,6 +21,7 @@ thì bị chặn — không để giá mẫu lẫn với giá thật.
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from ..config import SETTINGS
 from .typed_values import (
@@ -45,6 +46,35 @@ DATA_DISCLAIMER_PHRASES = [
     "chưa có thông số", "không có thông số",
 ]
 _ECHO_MARKERS = ("bạn nói", "bạn bảo", "theo bạn", "bạn nhắc", "bạn kể")
+# Câu hỏi chung chung — hỏi mà không khai thác gì cụ thể. So khớp trên
+# dạng bỏ dấu để "không" / "không ạ" / "không anh ạ" đều bắt được.
+GENERIC_QUESTION_PATTERNS = (
+    "con muon hoi them", "con dieu gi muon hoi", "con thac mac gi",
+    "con gi muon hoi", "con gi can hoi", "muon hoi them gi",
+    "muon tim hieu them", "con muon tim hieu them", "con cau hoi nao",
+    "con gi muon biet",
+)
+# Câu từ chối trần ("không" + xưng hô) — trả lời cho câu hỏi chung thì
+# chưa phải là muốn dừng trò chuyện.
+BARE_NEGATIONS = (
+    "khong", "khong a", "khong anh a", "khong chi a", "khong em a",
+    "khong bac a", "khong ban a", "khong co", "het roi", "thoi",
+    "thoi a", "khong can", "khong can a",
+)
+
+
+def _strip_accents(s: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", s or "")
+                   if unicodedata.category(c) != "Mn")
+
+
+def _is_generic_question(text: str) -> bool:
+    stripped = _strip_accents(_norm(text))
+    return any(p in stripped for p in GENERIC_QUESTION_PATTERNS)
+
+
+def _is_bare_negation(text: str) -> bool:
+    return _strip_accents(_norm(text)) in BARE_NEGATIONS
 _NEGATIONS = ("không phải", "không có", "chưa phải", "không phải là")
 
 
@@ -212,6 +242,32 @@ def validate(final: dict, ctx: dict) -> list[str]:
             errors.append(f"data_disclaimer: reply chứa '{p}' — nói tự "
                           "nhiên ('mình không rõ lắm') rồi chuyển sang "
                           "sale/đại lý, đừng thanh minh bằng giọng hệ thống")
+    # 2c. Câu hỏi chung chung trong khi khách vừa nêu need cụ thể.
+    # Điểm gãy đã đo được (2026-11-02): lượt khách nêu "đi phố tiết kiệm"
+    # bị đáp bằng câu chung "còn muốn hỏi thêm gì không?" thay vì câu
+    # hỏi cụ thể theo need, rồi lượt sau khách nói "không" là chốt luôn.
+    # Chỉ bắt khi intent lượt này có share_need (need nêu ở lượt trước
+    # thì prompt lo, validator không có intent lịch sử để bắt cứng).
+    if "share_need" in (ctx.get("planner_intents") or []):
+        followup_q = final.get("followup_question") or ""
+        if _is_generic_question(followup_q) or (
+                _is_generic_question(text) and text.count("?") == 1):
+            errors.append(
+                "generic_followup_on_stated_need: khách vừa nêu nhu cầu cụ "
+                "thể nhưng câu hỏi duy nhất lại chung chung — hỏi một câu "
+                "CỤ THỂ theo nhu cầu đó (quãng đường mỗi ngày, xe đang đi, "
+                "mức tiêu hao hiện tại, thời gian dự định mua...) thay vì "
+                "câu chung chung")
+    # 2d. Chốt hội thoại chỉ vì khách nói "không" với câu hỏi chung.
+    # "Không" đó từ chối câu hỏi chung, không phải từ chối trò chuyện;
+    # khi need còn chưa khai thác thì phải chuyển sang câu cụ thể.
+    if goal == "stop" and _is_bare_negation(ctx.get("user_text", "")) \
+            and _is_generic_question(ctx.get("prev_persona_text", "")):
+        errors.append(
+            "stop_on_generic_refusal: khách chỉ nói 'không' với câu hỏi "
+            "chung chung của lượt trước, chưa phải muốn dừng — KHÔNG chốt "
+            "hội thoại, hãy hỏi một câu CỤ THỂ về nhu cầu khách đã nêu "
+            "thay vì dừng ở đây")
     # 3. Opt-out: không hỏi thêm, không gợi mở.
     if ctx.get("opted_out"):
         if final.get("followup_question"):

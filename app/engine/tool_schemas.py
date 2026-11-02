@@ -10,7 +10,12 @@ TOOLS = [
         "function": {
             "name": "plan_turn",
             "description": "Bước planner: liệt kê mọi ý trong lượt, câu hỏi đang chờ, "
-            "nhu cầu dữ liệu, mục tiêu và hướng trả lời. Gọi đầu tiên.",
+            "nhu cầu dữ liệu, mục tiêu và hướng trả lời. Gọi đầu tiên. "
+            "Khai thác need: nếu khách đã nêu nhu cầu cụ thể mà chưa được "
+            "hỏi cụ thể, followup PHẢI là câu hỏi cụ thể theo nhu cầu đó, "
+            "không dùng câu chung chung ('còn muốn hỏi thêm gì không?'); "
+            "một câu 'không' cho câu hỏi chung không được chọn goal stop "
+            "khi need còn chưa khai thác.",
             "parameters": {
                 "type": "object",
                 "properties": {

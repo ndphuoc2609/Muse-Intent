@@ -741,11 +741,26 @@ class Pipeline:
         asked_ai = any(i.type == "ai_identity" for i in planner.intents)
         refused = declined_keys
         validator_errors: list[str] = []
+        # Câu persona gần nhất trước lượt này — để validator bắt lỗi
+        # chốt sớm khi khách chỉ nói "không" với câu hỏi chung.
+        prev_persona_text = ""
+        for _m in reversed(history):
+            if _m.role == "persona":
+                prev_persona_text = _m.text or ""
+                break
         for _repair in range(SETTINGS.max_validator_repairs + 1):
             validator_errors = validate(final, {
-                "retrieved": executor.retrieved, "opted_out": opted_out,
+                "retrieved": executor.retrieved,
+                # opted_out theo final HIỆN TẠI, không theo planner gốc:
+                # final đã sửa từ stop sang hỏi tiếp thì không còn
+                # opt-out để §3 khỏi chặn câu hỏi sửa.
+                "opted_out": (final.get("goal", planner.goal) == "stop")
+                or any(i.type == "opt_out" for i in planner.intents),
                 "asked_ai_identity": asked_ai, "refused_keys": refused,
-                "lead_capture": _lead_capture})
+                "lead_capture": _lead_capture,
+                "planner_intents": [i.type for i in planner.intents],
+                "user_text": req.text,
+                "prev_persona_text": prev_persona_text})
             if not validator_errors:
                 break
             if _repair == SETTINGS.max_validator_repairs:
@@ -794,6 +809,10 @@ class Pipeline:
             else:
                 break
         goal = final.get("goal", planner.goal)
+        # Final đã sửa khỏi stop thì không còn opt-out: câu hỏi mới trong
+        # final sửa mới được tạo QuestionState ở bước delivery.
+        opted_out = goal == "stop" or any(
+            i.type == "opt_out" for i in planner.intents)
         # --- 5. Cập nhật QuestionState: chỉ ANSWERED khi planner nêu key.
         # Chuyển chủ đề KHÔNG có nghĩa đã trả lời, và KHÔNG tự đổi
         # pending -> redirected (lỗi cũ làm mất câu hỏi đang chờ).
