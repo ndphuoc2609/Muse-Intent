@@ -55,9 +55,17 @@ Vì sao chưa neural (nói rõ, không giấu):
 - Neural local (sentence-transformers, paraphrase-multilingual): code
   đã có (`SentenceTransformerEmbedder`, lazy-load để server/test không
   trả phí import torch), cài đặt trong `requirements-rag.txt` (không nằm
-  trong requirements chính vì nặng). Cài trong VM ngày 2026-11-02 chưa
-  xong trong giới hạn 280s (gói torch lớn) nên v1 chạy TF-IDF; việc cài
-  đang chạy nền, xong sẽ build thử `--provider st` để so sánh.
+  trong requirements chính vì nặng). Đã cài xong trong VM ngày 2026-11-02
+  (sentence-transformers 6.2.0, torch 2.15.0, model
+  paraphrase-multilingual-MiniLM-L12-v2, 384 dims); build index ST đầu
+  ~29 phút (chủ yếu tải model lần đầu, model đã cache nên build lại
+  nhanh hơn). So sánh trên AUTO_029: ST thắng paraphrase (“tốn kém nuôi
+  xe mỗi tháng” -> 0.562/0.536/0.404 vs TF-IDF chỉ 0.124) và tách điểm
+  mạnh hơn ở câu đúng chủ đề, nhưng THUA ở truy vấn không dấu
+  (“duong ngap nuoc” -> ST top-1 sai sang chủ đề xăng, đáp án đúng
+  hạng 2–3) và câu hỏi ngắn về nghề (profile hạng 4 với 0.282, top-1
+  sai). Kết luận: giữ TF-IDF làm chính; ST cần hiệu chuẩn ngưỡng +
+  verify live trước khi chuyển, hoặc hybrid hai kênh (chưa làm).
 
 Giới hạn thật của TF-IDF: truy vấn trùng từ khóa thì khớp mạnh, nhưng
 diễn đạt khác từ hoàn toàn (paraphrase thuần túy, đồng nghĩa) thì
@@ -110,9 +118,10 @@ không gian vector — meta ghi rõ provider, pipeline đọc meta để dùng
 Query mẫu trên AUTO_029 (TF-IDF): chunk liên quan đạt 0.118–0.276,
 nhiễu ≤ 0.095. Ngưỡng mặc định TF-IDF = **0.10** (tách được hai nhóm
 với biên mỏng — vì vậy pipeline chỉ lấy tối đa 3 chunk và validator
-vẫn là cửa cuối). Neural có phân phối cosine cao hơn hẳn nên ngưỡng
-riêng 0.35 (chưa hiệu chuẩn live — khi build `--provider st` phải đo
-lại ngưỡng trước khi dùng).
+vẫn là cửa cuối). Ngưỡng ST 0.35 hiện là mặc định CHƯA hiệu chuẩn:
+đo mẫu cho thấy nó giữ lại top-1 sai (0.369, 0.368) trong khi lọc đáp
+án đúng thấp hơn (0.281, 0.282) — không được chuyển main khi chưa
+hiệu chuẩn lại ngưỡng trên một tập query.
 
 ## 6. Kiểm chứng live (Luna thật, FakeSender, 2026-11-02)
 
