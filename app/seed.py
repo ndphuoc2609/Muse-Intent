@@ -1,33 +1,87 @@
-"""Seed persona mẫu (§15). Dữ liệu HƯ CẤU, gắn nhãn rõ ràng.
+"""Seed persona từ dữ liệu import (data/personas.json, 200 persona).
 
-Idempotent: mỗi phần (persona, fact, profile, perspective, style,
-category, story, tag, actor, product fact) được upsert theo khóa riêng,
-nên gọi /seed nhiều lần không tạo trùng và DB cũ vẫn được bổ sung
-phần mới khi chạy lại.
+Nguồn: endpoint /api/personas do Phước cung cấp (payload đã vendor vào
+data/personas.json để seed không phụ thuộc endpoint lúc chạy).
+Seed cũ (hoang-nam, minh-anh) đã bị THAY HẲN theo yêu cầu 2026-11-02:
+seed() giờ nạp 200 persona mới và purge toàn bộ canon + thread của
+persona nào không còn trong dữ liệu mới (kể cả hoang-nam/minh-anh).
+Bản cũ vẫn khôi phục được từ git (nhánh dialogue-naturalness).
 
-Hai persona khác nhau rõ rệt, để kiểm tra isolation (không phải bản
-sao đổi tên):
-- Hoàng Nam: 24, Cầu Giấy — Hà Nội, Creta 1.5 Cao cấp, mua 03/2024,
-  xe đầu đời, đi làm Cầu Giấy – Mỹ Đình. Màu xe và chuyến đi cụ thể
-  KHÔNG seed sẵn: chúng chỉ xuất hiện qua propose -> engine check ->
-  lưu (§8), giữ nguyên nguyên tắc seed ban đầu cho persona này.
-- Minh Anh: 31, Quận 7 — TP.HCM, Tucson 2.0 Đặc biệt, mua 08/2022,
-  đã đổi xe (không phải xe đầu), đi làm Quận 7 – Quận 1, gia đình có
-  con nhỏ đi học. Đây là persona mẫu HOÀN CHỈNH của persona-depth:
-  profile, perspective, style, category, story có tags/categories,
-  và đã qua persona validator (xem tests/test_persona_depth.py).
+Mapping — chỉ map những gì nguồn có, KHÔNG bịa field nguồn không có:
+- Persona: id=code (AUTO_xxx, unique), display_name=name,
+  style=tone, stance=peer_user (mọi persona đều là user bình thường,
+  không role), age=None, region="" (nguồn không có tuổi/vùng).
+  is_fictional=True + identity_note hư cấu: GIẢ ĐỊNH từ mã AUTO_ và
+  tên stylized (vd "Khang Vibe"); Phước chưa xác nhận fictional —
+  nếu dữ liệu là người thật thì phải sửa chỗ này trước khi dùng rộng.
+- PersonaProfile: occupation, family_structure=lifestyle.family_status,
+  daily_rhythm=lifestyle.daily_commute,
+  ownership_status="đang sở hữu" (suy ra từ chính tên field car_owned).
+- PersonaFact (source="import"): duy nhất vehicle_model=car_owned
+  NGUYÊN VĂN (không tách trim/màu từ text tự do, không bịa
+  purchased_at/is_first_car vì nguồn không có).
+- PersonaPerspective: aspect="values", content=perspective.
+- PersonaStyleGuide: address_form="mình/bạn",
+  style_examples=[sample_quote],
+  avoid_patterns=["rao bán", "hứa hẹn giao dịch", "xin số điện thoại"]
+  (policy hệ thống, giống seed cũ). Các field style khác NULL.
+- PersonaStory: mỗi memory[] thành một story event_type="memory",
+  event_id={code}_mem_{i}, title=cắt 60 ký tự đầu của text (suy ra
+  cơ học, không bịa), summary=body=text nguyên văn,
+  canonical_facts=[text], tellable_policy="on_relevance",
+  fictional_generated=True, provenance="import", event_date=None.
+  Story không có tag taxonomy (hashtag nguồn không thuộc taxonomy và
+  TagAssignment.tag FK tới tag_definitions) nên retrieval chấm điểm
+  qua entity/body keyword overlap, không qua tag/category.
+- KHÔNG map vào bảng quan hệ (giữ nguyên văn trong data/personas.json
+  để bước RAG dùng sau): role (không đưa role vào context — persona
+  là peer_user, không role), personality_traits, hashtags, post_history,
+  lifestyle.hobbies, lifestyle.practical_painpoints,
+  lifestyle.multi_angle_ready, category 5 nhóm của nguồn (không phải
+  mã taxonomy 7 nhóm hiện tại).
+
+Idempotent: persona/profile/style upsert theo id (ghi đè từ nguồn);
+fact/perspective/story chỉ thêm khi chưa có, không tạo trùng khi
+gọi /seed nhiều lần. Product facts mẫu (Creta/Tucson) và actors giữ
+nguyên — yêu cầu thay chỉ áp dụng cho dữ liệu persona.
 """
 from __future__ import annotations
 
-from sqlalchemy import select
+import json
+from pathlib import Path
+
+from sqlalchemy import delete, select
 
 from .engine.taxonomy import seed_taxonomy
-from .models import (Actor, Persona, PersonaCategory, PersonaFact,
-                     PersonaPerspective, PersonaProfile, PersonaStory,
-                     PersonaStyleGuide, ProductFact, TagAssignment)
+from .models import (
+    Actor, CustomerFact, Delivery, EnrichmentDraft, Message,
+    Persona, PersonaCategory, PersonaFact, PersonaPerspective,
+    PersonaProfile, PersonaStory, PersonaStyleGuide, ProductFact,
+    QuestionState, RetrievalLog, StoryLink, StoryRevision, StoryTold,
+    Thread, TurnIdempotency, TagAssignment,
+)
+
+_DATA_PATH = Path(__file__).resolve().parents[1] / "data" / "personas.json"
+_AVOID = ["rao bán", "hứa hẹn giao dịch", "xin số điện thoại"]
+_FICTIONAL_NOTE = "PERSONA HƯ CẤU cho sandbox, không phải người thật."
 
 
-def _fact(session, persona_id, key, value, src="seed"):
+def _load_source() -> list[dict]:
+    with open(_DATA_PATH, encoding="utf-8") as f:
+        payload = json.load(f)
+    personas = payload.get("personas") or []
+    if not personas:
+        raise ValueError(f"{_DATA_PATH} không chứa persona nào")
+    for p in personas:
+        if not p.get("code") or not p.get("name") or not p.get("car_owned"):
+            raise ValueError(f"persona thiếu code/name/car_owned: {p}")
+    codes = [p["code"] for p in personas]
+    if len(set(codes)) != len(codes):
+        raise ValueError("code persona trùng nhau trong dữ liệu nguồn")
+    return personas
+
+
+def _fact(session, persona_id, key, value, src="import"):
     row = session.execute(
         select(PersonaFact).where(
             PersonaFact.persona_id == persona_id,
@@ -40,19 +94,7 @@ def _fact(session, persona_id, key, value, src="seed"):
     return False
 
 
-def _category(session, persona_id, code):
-    row = session.execute(
-        select(PersonaCategory).where(
-            PersonaCategory.persona_id == persona_id,
-            PersonaCategory.category_code == code)).scalars().first()
-    if row is None:
-        session.add(PersonaCategory(persona_id=persona_id,
-                                    category_code=code))
-        return True
-    return False
-
-
-def _perspective(session, persona_id, aspect, content, prior=None):
+def _perspective(session, persona_id, aspect, content):
     row = session.execute(
         select(PersonaPerspective).where(
             PersonaPerspective.persona_id == persona_id,
@@ -60,182 +102,158 @@ def _perspective(session, persona_id, aspect, content, prior=None):
             PersonaPerspective.status == "active")).scalars().first()
     if row is None:
         session.add(PersonaPerspective(
-            persona_id=persona_id, aspect=aspect, content=content,
-            prior_content=prior))
+            persona_id=persona_id, aspect=aspect, content=content))
         return True
     return False
 
 
-def _tag(session, entity_type, entity_id, tag, src="seed"):
-    row = session.execute(
-        select(TagAssignment).where(
-            TagAssignment.entity_type == entity_type,
-            TagAssignment.entity_id == entity_id,
-            TagAssignment.tag == tag)).scalars().first()
-    if row is None:
-        session.add(TagAssignment(entity_type=entity_type,
-                                  entity_id=entity_id, tag=tag,
-                                  source=src, status="active"))
-        return True
-    return False
-
-
-def _ensure_nam(session):
-    if session.get(Persona, "hoang-nam") is None:
+def _ensure_persona(session, p: dict) -> None:
+    code = p["code"]
+    lc = p.get("lifestyle_context") or {}
+    persona = session.get(Persona, code)
+    if persona is None:
         session.add(Persona(
-            id="hoang-nam", display_name="Hoàng Nam", age=24,
-            region="Cầu Giấy, Hà Nội", stance="peer_user",
-            style="Nói tự nhiên, gần gũi, xưng mình/bạn, chia sẻ trải "
-                  "nghiệm thật ngắn gọn, không rao bán, không hứa hẹn "
-                  "giao dịch.",
-            identity_note="PERSONA HƯ CẤU cho sandbox, không phải người thật.",
-            is_fictional=True))
-    for key, value in [
-            ("vehicle_model", "Hyundai Creta"),
-            ("vehicle_trim", "1.5 Cao cấp"),
-            ("purchased_at", "2024-03"),
-            ("is_first_car", "xe đầu đời"),
-            ("commute_route", "Cầu Giấy – Mỹ Đình"),
-            ("weekend_route", "Cầu Giấy – Nam Định (thỉnh thoảng)")]:
-        _fact(session, "hoang-nam", key, value)
-    if session.get(PersonaProfile, "hoang-nam") is None:
+            id=code, display_name=p["name"], age=None, region="",
+            stance="peer_user", style=p.get("tone") or "",
+            identity_note=_FICTIONAL_NOTE, is_fictional=True))
+    else:
+        persona.display_name = p["name"]
+        persona.style = p.get("tone") or ""
+        persona.stance = "peer_user"
+        persona.identity_note = _FICTIONAL_NOTE
+        persona.is_fictional = True
+    profile = session.get(PersonaProfile, code)
+    if profile is None:
         session.add(PersonaProfile(
-            persona_id="hoang-nam", occupation="Nhân viên văn phòng",
-            daily_rhythm="Đi làm giờ hành chính, tối ở nhà, cuối tuần "
-                         "thỉnh thoảng về quê",
-            family_structure="Sống cùng bố mẹ, chưa lập gia đình",
+            persona_id=code, occupation=p.get("occupation"),
+            daily_rhythm=lc.get("daily_commute"),
+            family_structure=lc.get("family_status"),
             ownership_status="đang sở hữu",
-            purchase_context="Mua xe đầu đời để đi làm và về quê",
-            spending_limit_note=None))  # NULL = chưa xác lập, không suy diễn
-    for aspect, content in [
-            ("values", "Xe phải dễ dùng hằng ngày, bền, không rắc rối."),
-            ("tradeoffs", "Chấp nhận xe không quá mạnh để đổi lấy tiết kiệm "
-                          "và dễ xoay xở trong phố."),
-            ("concerns", "Lo chọn sai xe đầu đời, lo chi phí phát sinh."),
-            ("unknowns", "Chưa từng đi đường đèo dài, chưa tự bảo dưỡng sâu."),
-            ("not_suitable_for",
-             "Lựa chọn của mình không chắc hợp với người cần chở 7 người "
-             "hay chạy dịch vụ.")]:
-        _perspective(session, "hoang-nam", aspect, content)
-    if session.get(PersonaStyleGuide, "hoang-nam") is None:
+            purchase_context=None, spending_limit_note=None))
+    else:
+        profile.occupation = p.get("occupation")
+        profile.daily_rhythm = lc.get("daily_commute")
+        profile.family_structure = lc.get("family_status")
+        profile.ownership_status = "đang sở hữu"
+    style = session.get(PersonaStyleGuide, code)
+    examples = [p["sample_quote"]] if p.get("sample_quote") else []
+    if style is None:
         session.add(PersonaStyleGuide(
-            persona_id="hoang-nam", address_form="mình/bạn",
-            answer_length="ngắn, 2-4 câu", intimacy="thân mật vừa phải",
-            emoji_use="hiếm", storytelling="kể ngắn, đúng điểm",
-            proactive_question_level="thấp (tối đa 1 câu/lượt)",
-            avoid_patterns=["rao bán", "hứa hẹn giao dịch", "xin số điện thoại"],
-            style_examples=[
-                "Mình đi Creta từ đầu năm ngoái, đi phố thấy ổn.",
-                "Cái này mình chưa trải qua nên không khẳng định được."]))
-    for code in ("first_car_owner", "urban_commuter", "family_daily_use",
-                 "ownership_cost_focused"):
-        _category(session, "hoang-nam", code)
+            persona_id=code, address_form="mình/bạn",
+            answer_length=None, intimacy=None, emoji_use=None,
+            storytelling=None, proactive_question_level=None,
+            avoid_patterns=list(_AVOID), style_examples=examples))
+    else:
+        style.address_form = "mình/bạn"
+        style.avoid_patterns = list(_AVOID)
+        style.style_examples = examples
+    _fact(session, code, "vehicle_model", p["car_owned"])
+    if p.get("perspective"):
+        _perspective(session, code, "values", p["perspective"])
+    for i, text in enumerate(p.get("memory") or [], start=1):
+        if not text or not str(text).strip():
+            continue
+        text = str(text)
+        event_id = f"{code}_mem_{i}"
+        if session.get(PersonaStory, event_id) is None:
+            title = text if len(text) <= 60 else text[:57] + "..."
+            session.add(PersonaStory(
+                event_id=event_id, persona_id=code, title=title,
+                summary=text, body=text, entities={},
+                event_type="memory", event_date=None,
+                event_date_precision="unknown", fictional_generated=True,
+                status="active", provenance="import",
+                participants=[], context_text=None, concern_or_choice=None,
+                action_text=None, outcome_text=None, feeling_or_lesson=None,
+                canonical_facts=[text], tellable_policy="on_relevance",
+                related_need_topics=[], story_categories=[]))
 
 
-def _ensure_anh(session):
-    if session.get(Persona, "minh-anh") is None:
-        session.add(Persona(
-            id="minh-anh", display_name="Minh Anh", age=31,
-            region="Quận 7, TP.HCM", stance="peer_user",
-            style="Nói ấm áp, chi tiết vừa đủ, xưng mình/bạn, chia sẻ "
-                  "trải nghiệm gia đình, không rao bán, không hứa hẹn "
-                  "giao dịch.",
-            identity_note="PERSONA HƯ CẤU cho sandbox, không phải người thật.",
-            is_fictional=True))
-    for key, value in [
-            ("vehicle_model", "Hyundai Tucson"),
-            ("vehicle_trim", "2.0 Đặc biệt"),
-            ("purchased_at", "2022-08"),
-            ("is_first_car", "không phải xe đầu (đã đổi từ xe cỡ nhỏ)"),
-            ("commute_route", "Quận 7 – Quận 1"),
-            ("weekend_route", "Quận 7 – Vũng Tàu (thỉnh thoảng)")]:
-        _fact(session, "minh-anh", key, value)
-    if session.get(PersonaProfile, "minh-anh") is None:
-        session.add(PersonaProfile(
-            persona_id="minh-anh", occupation="Quản lý dự án",
-            daily_rhythm="Đi làm giờ hành chính, sáng đưa con đi học, "
-                         "cuối tuần đưa gia đình đi chơi",
-            family_structure="Vợ chồng, 1 con nhỏ đi học mẫu giáo",
-            ownership_status="đang sở hữu",
-            purchase_context="Đổi từ xe cỡ nhỏ lên SUV để có không gian "
-                             "cho gia đình",
-            spending_limit_note=None))
-    for aspect, content, prior in [
-            ("values", "Không gian và an toàn cho gia đình là ưu tiên hàng đầu.", None),
-            ("tradeoffs", "Chấp nhận chi phí vận hành cao hơn để đổi lấy "
-                          "không gian và an toàn đường dài.", None),
-            ("concerns", "Lo đỗ xe ở hầm chung cư và chi phí bảo dưỡng.", None),
-            ("changed_view", "Xe vừa đủ dùng quan trọng hơn xe to nhất.",
-             "Trước đây nghĩ xe càng to càng tốt."),
-            ("unknowns", "Chưa từng chạy xe điện, chưa đi đường miền núi dài.", None),
-            ("not_suitable_for",
-             "Lựa chọn của mình không chắc hợp với người đi một mình "
-             "trong phố chật và cần tiết kiệm tối đa.", None)]:
-        _perspective(session, "minh-anh", aspect, content, prior)
-    if session.get(PersonaStyleGuide, "minh-anh") is None:
-        session.add(PersonaStyleGuide(
-            persona_id="minh-anh", address_form="mình/bạn",
-            answer_length="vừa, 3-5 câu, có chi tiết gia đình",
-            intimacy="ấm áp, gần gũi", emoji_use="thỉnh thoảng",
-            storytelling="kể có bối cảnh gia đình, kết bằng cảm nhận",
-            proactive_question_level="trung bình (tối đa 1 câu/lượt)",
-            avoid_patterns=["rao bán", "hứa hẹn giao dịch", "xin số điện thoại"],
-            style_examples=[
-                "Nhà mình đổi lên Tucson vì con lớn dần, cần cốp rộng hơn.",
-                "Đi Vũng Tàu cả nhà ngồi thoải mái, nhưng đỗ xe thì phải tính trước."]))
-    for code in ("experienced_owner", "family_daily_use", "frequent_road_trip"):
-        _category(session, "minh-anh", code)
-    # Story hoàn chỉnh, có tags/categories, liên kết fact, không bịa giá.
-    row = session.get(PersonaStory, "evt_anh_vungtau")
-    if row is None:
-        session.add(PersonaStory(
-            event_id="evt_anh_vungtau", persona_id="minh-anh",
-            title="Chuyến Vũng Tàu cùng gia đình",
-            summary="Đưa gia đình đi Vũng Tàu cuối tuần bằng Tucson, "
-                    "không gian rộng, con ngồi thoải mái.",
-            body="Cuối tuần nhà mình lái Tucson từ Quận 7 đi Vũng Tàu. "
-                 "Cốp đủ đồ cho cả nhà, con ngồi sau không bị chật, "
-                 "đường trường xe chạy ổn định. Đỗ xe ở khu du lịch thì "
-                 "phải đi sớm mới có chỗ rộng.",
-            entities={"vehicle": "Hyundai Tucson",
-                      "places": ["Quận 7", "Vũng Tàu"],
-                      "persons": ["gia đình"]},
-            event_type="trip", event_date=None,
-            event_date_precision="unknown", fictional_generated=True,
-            status="active", provenance="seed",
-            participants=[{"name": "gia đình", "relation": "family"}],
-            context_text="Cuối tuần đưa gia đình đi Vũng Tàu.",
-            concern_or_choice="Cần không gian cho gia đình và chỗ đỗ rộng.",
-            action_text="Lái Tucson đi Vũng Tàu cuối tuần.",
-            outcome_text="Cả nhà ngồi thoải mái, đỗ xe phải đi sớm.",
-            feeling_or_lesson="Không gian rộng đáng đổi lấy chi phí cao hơn.",
-            canonical_facts=["Đi Tucson từ Quận 7 đi Vũng Tàu cuối tuần"],
-            tellable_policy="on_relevance",
-            related_need_topics=["family_trip", "long_distance_trip"],
-            story_categories=["family_daily_use", "frequent_road_trip"]))
-    for tag in ("usage.long_distance_trip", "usage.family_weekend",
-                "experience.long_distance_trip", "priority.space_comfort"):
-        _tag(session, "story", "evt_anh_vungtau", tag)
-    # Product fact mẫu cho Tucson (để test isolation: hỏi Tucson không
-    # được trả giá Creta và ngược lại).
-    exists = session.execute(
-        select(ProductFact).where(
-            ProductFact.model == "Hyundai Tucson",
-            ProductFact.fact_type == "price")).scalars().first()
-    if exists is None:
-        session.add(ProductFact(
-            model="Hyundai Tucson", trim="2.0 Đặc biệt", fact_type="price",
-            value_text="769 triệu đồng (giá mẫu, chưa phải giá thực tế)",
-            value_number=769, unit="triệu đồng", location="TP.HCM",
-            source="sample", valid_from="2026-01-01",
-            valid_to="2026-12-31", is_sample=True))
+def _purge_removed(session, keep_ids: set[str]) -> list[str]:
+    """Xóa hẳn persona không còn trong dữ liệu mới + toàn bộ dữ liệu
+    gắn với chúng (canon, thread, message, customer fact...). Chỉ chạy
+    khi seed() được gọi; DB mới không có gì để xóa nên là no-op."""
+    old = session.execute(
+        select(Persona).where(Persona.id.notin_(keep_ids))).scalars().all()
+    removed = []
+    for persona in old:
+        pid = persona.id
+        thread_ids = [t.id for t in session.execute(
+            select(Thread).where(Thread.persona_id == pid)).scalars().all()]
+        msg_ids = []
+        if thread_ids:
+            msg_ids = [m.id for m in session.execute(
+                select(Message).where(
+                    Message.thread_id.in_(thread_ids))).scalars().all()]
+        story_ids = [st.event_id for st in session.execute(
+            select(PersonaStory).where(
+                PersonaStory.persona_id == pid)).scalars().all()]
+        fact_ids = [f.id for f in session.execute(
+            select(PersonaFact).where(
+                PersonaFact.persona_id == pid)).scalars().all()]
+        if msg_ids:
+            session.execute(delete(Delivery).where(
+                Delivery.message_id.in_(msg_ids)))
+            session.execute(delete(StoryTold).where(
+                StoryTold.message_id.in_(msg_ids)))
+        if thread_ids:
+            session.execute(delete(TurnIdempotency).where(
+                TurnIdempotency.thread_id.in_(thread_ids)))
+            session.execute(delete(QuestionState).where(
+                QuestionState.thread_id.in_(thread_ids)))
+            session.execute(delete(CustomerFact).where(
+                CustomerFact.thread_id.in_(thread_ids)))
+            session.execute(delete(Message).where(
+                Message.thread_id.in_(thread_ids)))
+            session.execute(delete(Thread).where(
+                Thread.persona_id == pid))
+        session.execute(delete(StoryTold).where(
+            StoryTold.persona_id == pid))
+        if story_ids:
+            session.execute(delete(StoryLink).where(
+                StoryLink.from_event_id.in_(story_ids)))
+            session.execute(delete(StoryLink).where(
+                StoryLink.to_event_id.in_(story_ids)))
+            session.execute(delete(StoryRevision).where(
+                StoryRevision.event_id.in_(story_ids)))
+            session.execute(delete(TagAssignment).where(
+                TagAssignment.entity_type == "story").where(
+                TagAssignment.entity_id.in_(story_ids)))
+        session.execute(delete(TagAssignment).where(
+            TagAssignment.entity_type == "persona").where(
+            TagAssignment.entity_id == pid))
+        if fact_ids:
+            session.execute(delete(TagAssignment).where(
+                TagAssignment.entity_type == "fact").where(
+                TagAssignment.entity_id.in_(fact_ids)))
+        session.execute(delete(RetrievalLog).where(
+            RetrievalLog.persona_id == pid))
+        session.execute(delete(EnrichmentDraft).where(
+            EnrichmentDraft.persona_id == pid))
+        session.execute(delete(PersonaStory).where(
+            PersonaStory.persona_id == pid))
+        session.execute(delete(PersonaFact).where(
+            PersonaFact.persona_id == pid))
+        session.execute(delete(PersonaPerspective).where(
+            PersonaPerspective.persona_id == pid))
+        session.execute(delete(PersonaProfile).where(
+            PersonaProfile.persona_id == pid))
+        session.execute(delete(PersonaStyleGuide).where(
+            PersonaStyleGuide.persona_id == pid))
+        session.execute(delete(PersonaCategory).where(
+            PersonaCategory.persona_id == pid))
+        session.delete(persona)
+        removed.append(pid)
+    return removed
 
 
 def seed(session) -> dict:
     seed_taxonomy(session)
-    _ensure_nam(session)
-    _ensure_anh(session)
-    # Product facts mẫu cho Creta (chỉ tạo một lần).
+    personas = _load_source()
+    for p in personas:
+        _ensure_persona(session, p)
+    removed = _purge_removed(session, {p["code"] for p in personas})
+    # Product facts mẫu (miền riêng, giữ nguyên) + actors (giữ nguyên).
     exists = session.execute(
         select(ProductFact).where(
             ProductFact.model == "Hyundai Creta",
@@ -252,8 +270,21 @@ def seed(session) -> dict:
             value_text="5 năm hoặc 100.000 km (dữ liệu mẫu)",
             source="sample", valid_from="2026-01-01",
             valid_to="2026-12-31", is_sample=True))
+    exists = session.execute(
+        select(ProductFact).where(
+            ProductFact.model == "Hyundai Tucson",
+            ProductFact.fact_type == "price")).scalars().first()
+    if exists is None:
+        session.add(ProductFact(
+            model="Hyundai Tucson", trim="2.0 Đặc biệt", fact_type="price",
+            value_text="769 triệu đồng (giá mẫu, chưa phải giá thực tế)",
+            value_number=769, unit="triệu đồng", location="TP.HCM",
+            source="sample", valid_from="2026-01-01",
+            valid_to="2026-12-31", is_sample=True))
     for actor_id, name in (("actor-1", "Khách 1"), ("actor-2", "Khách 2")):
         if session.get(Actor, actor_id) is None:
             session.add(Actor(id=actor_id, display_name=name))
     session.commit()
-    return {"seeded": True, "personas": ["hoang-nam", "minh-anh"]}
+    return {"seeded": True,
+            "personas": [p["code"] for p in personas],
+            "removed": removed}

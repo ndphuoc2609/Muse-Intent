@@ -10,7 +10,7 @@
     "input": "Bác mua xe lúc nào?",
     "status": "sent",
     "expected_status": "sent",
-    "reply": "Mình mua xe tháng 2024-03 đó.",
+    "reply": "Ừ, mình hiểu ý bạn rồi.",
     "pass": true
   },
   {
@@ -66,7 +66,7 @@
     "input": "Bác có kỷ niệm nào đáng nhớ với xe không?",
     "status": "sent",
     "expected_status": "sent",
-    "reply": "Đi Creta về Nam Định cuối tuần, đường trường êm, cả nhà ngồi thoải mái.",
+    "reply": "Thường chở 2 chú chó Golden đi dạo công viên cuối tuần",
     "pass": true
   }
 ]

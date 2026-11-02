@@ -75,8 +75,19 @@ def test_guard_noop_without_persona_vehicle_or_resolution():
         "Nhà mình từng lái Tucson.")["resolved_reference"]["resolved_to"] == "Hyundai Creta"
 
 
+_MEM2 = ("Quan điểm về 'Trời mưa to, đường ngập lụt cục bộ: Rủi ro chết "
+         "máy, ngập nước và kinh nghiệm di chuyển an toàn': Từ những "
+         "chuyến đi cùng gia đình trên chiếc Hyundai Tucson, tôi thấy "
+         "an toàn khi gặp đường ngập bắt đầu từ việc biết dừng đúng "
+         "lúc, không phải cố chứng minh xe mình đi được.")
+
+
 class _StoryProvider:
-    """Lượt 1: kể story Vũng Tàu đã seed của Minh Anh (Tucson)."""
+    """Lượt 1: kể memory story của AUTO_089 (Hyundai Tucson) — tương đương
+    story Vũng Tàu của Minh Anh trong seed cũ: persona vừa nhắc xe
+    Tucson thì lượt sau khách nói mơ hồ "1 chiếc" không được gán Creta.
+    Dùng đúng xe 'Hyundai Tucson' (không kèm hậu tố trim) vì guard lấy
+    token phân biệt là từ cuối của tên xe."""
 
     def _called(self, messages):
         called = set()
@@ -106,11 +117,9 @@ class _StoryProvider:
         if "get_persona_stories" not in called:
             return ProviderResult(tool_calls=[ToolCall("get_persona_stories", {})])
         return ProviderResult(tool_calls=[ToolCall("submit_final_reply", {
-            "text": "Nhà mình từng lái Tucson từ Quận 7 đi Vũng Tàu cuối tuần "
-                    "cùng gia đình.",
-            "claims": [{"kind": "story", "ref_id": "evt_anh_vungtau",
-                        "value": "Đưa gia đình đi Vũng Tàu cuối tuần bằng "
-                                 "Tucson, không gian rộng, con ngồi thoải mái."}],
+            "text": _MEM2,
+            "claims": [{"kind": "story", "ref_id": "AUTO_089_mem_2",
+                        "value": _MEM2}],
             "goal": "share_experience"})])
 
 
@@ -164,17 +173,17 @@ class _VagueBuyProvider:
 
 
 def test_two_turn_tucson_story_then_vague_buy_no_creta_assertion(session):
-    # Setup đúng như live: persona Minh Anh (Tucson), bài viết về Creta.
+    # Setup đúng như live: persona Tucson (AUTO_089), bài viết về Creta.
     pipe1 = Pipeline(session, _StoryProvider(), FakeSender())
     r1 = pipe1.run(TurnRequest(
-        persona_id="minh-anh", post_text="Bài về Creta.",
+        persona_id="AUTO_089", post_text="Bài về Creta.",
         post_vehicle_models=["Hyundai Creta"],
         actor_id="actor-1", text="Đi những đâu rồi"))
     assert r1.status == "sent"
     assert "Tucson" in (r1.reply_text or "")
     pipe2 = Pipeline(session, _VagueBuyProvider(), FakeSender())
     r2 = pipe2.run(TurnRequest(
-        persona_id="minh-anh", post_text="Bài về Creta.",
+        persona_id="AUTO_089", post_text="Bài về Creta.",
         post_vehicle_models=["Hyundai Creta"],
         actor_id="actor-1", text="Tôi cũng tính lấy 1 chiếc",
         thread_id=r1.thread_id))

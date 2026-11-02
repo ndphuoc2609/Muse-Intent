@@ -89,7 +89,7 @@ def main():
         for text in turns:
             t0 = time.time()
             r = pipe.run(TurnRequest(
-                persona_id="hoang-nam", post_text="Bài về Creta.",
+                persona_id="AUTO_029", post_text="Bài về Creta.",
                 post_vehicle_models=["Hyundai Creta"],
                 actor_id="actor-1", text=text, thread_id=thread_id))
             thread_id = r.thread_id

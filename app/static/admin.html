@@ -28,7 +28,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{border-bottom:1px
 <p class="hint">Xem persona theo category/tags, timeline, story, validator, draft enrichment và retrieval log. Không cần đọc JSON dài. Dữ liệu là persona hư cấu cho sandbox.</p>
 <div class="card">
 <label for="persona">Persona</label>
-<select id="persona"><option value="hoang-nam">Hoàng Nam (Creta)</option><option value="minh-anh">Minh Anh (Tucson)</option></select>
+<select id="persona"></select>
 <div class="row"><button id="loadBtn">Xem persona</button><button class="secondary" id="seedBtn">Seed lại (idempotent)</button></div>
 <p id="loadMsg" class="hint" aria-live="polite"></p>
 </div>
@@ -59,13 +59,21 @@ async function api(path, opts) {
   if (!r.ok) throw new Error(d.detail || ('HTTP ' + r.status));
   return d;
 }
+async function loadPersonas() {
+  // Seed mới có 200 persona AUTO_* nên không hardcode option nữa.
+  try {
+    const list = await api('/personas');
+    const sel = $('persona');
+    sel.innerHTML = list.map(p => '<option value="' + esc(p.id) + '">' + esc(p.display_name) + ' (' + esc(p.id) + ')</option>').join('');
+  } catch (e) { $('loadMsg').textContent = 'Không tải được danh sách persona: ' + e.message; }
+}
 async function load() {
   const id = $('persona').value;
   $('loadMsg').textContent = 'Đang tải...';
   try {
     const d = await api('/admin/personas/' + id);
     const prof = d.profile || {};
-    $('profile').innerHTML = '<p><b>' + esc(d.display_name) + '</b>, ' + esc(d.age) + ' tuổi, ' + esc(d.region) + ' — <b>persona hư cấu</b>, stance: ' + esc(d.stance) + '</p>'
+    $('profile').innerHTML = '<p><b>' + esc(d.display_name) + '</b>' + (d.age ? ', ' + esc(d.age) + ' tuổi' : '') + (d.region ? ', ' + esc(d.region) : '') + ' — <b>persona hư cấu</b>, stance: ' + esc(d.stance) + '</p>'
       + '<p>Nghề: ' + esc(prof.occupation) + ' · Nhịp sinh hoạt: ' + esc(prof.daily_rhythm) + ' · Gia đình: ' + esc(prof.family_structure) + ' · Sở hữu: ' + esc(prof.ownership_status) + '</p>'
       + '<p>Bối cảnh: ' + esc(prof.purchase_context) + '</p>'
       + '<div class="chips">' + d.categories.map(c => '<span class="chip">' + esc(c) + '</span>').join('') + '</div>'
@@ -98,5 +106,5 @@ $('draftBtn').addEventListener('click', async () => {
     await load();
   } catch (e) { $('draftMsg').textContent = 'Lỗi: ' + e.message; }
 });
-load();
+loadPersonas().then(load);
 </script></body></html>

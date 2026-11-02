@@ -42,7 +42,7 @@ def main():
     thread_id = None
     for label, text in TURNS:
         r = pipe.run(TurnRequest(
-            persona_id="hoang-nam",
+            persona_id="AUTO_029",
             post_text="Mình mới lấy Creta đi làm hàng ngày, cuối tuần về quê.",
             post_vehicle_models=["Hyundai Creta"],
             actor_id="actor-1", text=text, thread_id=thread_id))

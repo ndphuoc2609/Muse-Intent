@@ -99,9 +99,13 @@ def _intent(typ, subject="self", relation=None, norm="", source="stated"):
 
 # --- 1. Hỏi hai dữ kiện trong một câu (Fake: engine proof) ---
 
-def test_two_facts_one_turn(pipe):
-    from tests.conftest import turn
-    r = turn(pipe, "Bác đi xe gì và mua lúc nào?")
+def test_two_facts_one_turn(pipe, session):
+    from tests.conftest import make_persona, turn
+    # Seed mới không có purchased_at nên dùng fixture giữ đúng ý test:
+    # một lượt hỏi hai dữ kiện, trả đủ cả hai.
+    pid = make_persona(session, "fix-two-facts", {
+        "vehicle_model": "Hyundai Creta", "purchased_at": "2024-03"})
+    r = turn(pipe, "Bác đi xe gì và mua lúc nào?", persona_id=pid)
     assert r.status == "sent"
     assert "Creta" in (r.reply_text or "")
     assert "2024-03" in (r.reply_text or "")
@@ -192,9 +196,9 @@ class _CorrectionStub(_Stub):
 
 def test_third_party_then_correction_supersedes(session):
     pipe = _pipe(session, _CorrectionStub())
-    r1 = _run(pipe, "hoang-nam", "Mình mua cho bố.")
+    r1 = _run(pipe, "AUTO_029", "Mình mua cho bố.")
     assert r1.status == "sent"
-    r2 = _run(pipe, "hoang-nam", "À không, mua cho mình.",
+    r2 = _run(pipe, "AUTO_029", "À không, mua cho mình.",
               thread_id=r1.thread_id)
     assert r2.status == "sent"
     rows = session.execute(
@@ -223,7 +227,7 @@ class _BrowseOnlyStub(_Stub):
 
 def test_browse_only_creates_no_followup(session):
     pipe = _pipe(session, _BrowseOnlyStub())
-    r = _run(pipe, "hoang-nam", "Mình chỉ xem thôi.")
+    r = _run(pipe, "AUTO_029", "Mình chỉ xem thôi.")
     assert r.status == "sent"
     rows = session.execute(
         select(QuestionState).where(
@@ -256,21 +260,28 @@ class _RetellStub(_Stub):
 
 
 def test_retell_uses_same_story_no_new_row(session):
+    # Seed cũ chỉ có 1 story Vũng Tàu của minh-anh; seed mới AUTO_029
+    # có 6 memory story. Ý test giữ nguyên: kể lại dùng đúng story cũ,
+    # không tạo story mới — assert theo ref_id lượt 1 thay vì hardcode
+    # event_id cũ, để không phụ thuộc thứ tự story trong DB.
     pipe = _pipe(session, _RetellStub())
-    r1 = _run(pipe, "minh-anh", "Đi những đâu rồi")
+    r1 = _run(pipe, "AUTO_029", "Đi những đâu rồi")
     assert r1.status == "sent"
-    assert "Vũng Tàu" in (r1.reply_text or "")
-    r2 = _run(pipe, "minh-anh", "Kể lại chuyến đó đi",
+    first_claim = [c for c in r1.tool_calls
+                   if c["tool"] == "submit_final_reply"][-1]
+    first_ref = first_claim["arguments"]["claims"][0]["ref_id"]
+    assert first_ref.startswith("AUTO_029_mem_")
+    r2 = _run(pipe, "AUTO_029", "Kể lại chuyến đó đi",
               thread_id=r1.thread_id)
     assert r2.status == "sent"
     stories = session.execute(
         select(PersonaStory).where(
-            PersonaStory.persona_id == "minh-anh")).scalars().all()
-    assert len(stories) == 1
-    assert stories[0].event_id == "evt_anh_vungtau"
+            PersonaStory.persona_id == "AUTO_029")).scalars().all()
+    assert len(stories) == 6
     final_call = [c for c in r2.tool_calls
                   if c["tool"] == "submit_final_reply"][-1]
-    assert final_call["arguments"]["claims"][0]["ref_id"] == "evt_anh_vungtau"
+    assert final_call["arguments"]["claims"][0]["ref_id"] == first_ref
+    assert r2.reply_text == r1.reply_text
 
 
 # --- 8. Hai actor xen kẽ: state không lẫn ---
@@ -403,7 +414,7 @@ def test_repair_preserves_intent(session):
     session.commit()
     stub = _RepairStub()
     pipe = _pipe(session, stub)
-    r = _run(pipe, "hoang-nam", "Testcar giá bao nhiêu?")
+    r = _run(pipe, "AUTO_029", "Testcar giá bao nhiêu?")
     assert r.status == "sent"
     assert "500" in (r.reply_text or "")
     assert "mẫu" in (r.reply_text or "")
@@ -420,7 +431,7 @@ def test_answered_questions_visible_in_context(pipe, session):
     turn(pipe, "Tiết kiệm thôi.", thread_id=r1.thread_id)
     stub = _BrowseOnlyStub()
     pipe2 = Pipeline(session, stub, FakeSender())
-    r3 = _run(pipe2, "hoang-nam", "Cảm ơn bạn nhé.", thread_id=r1.thread_id)
+    r3 = _run(pipe2, "AUTO_029", "Cảm ơn bạn nhé.", thread_id=r1.thread_id)
     assert r3.status == "sent"
     assert stub.systems, "stub phải thấy system prompt"
     assert "ĐÃ TRẢ LỜI" in stub.systems[-1]

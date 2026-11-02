@@ -74,7 +74,7 @@ persona-dialogue/
     db.py                # engine SQLite (mặc định) / Postgres (DATABASE_URL)
     models.py            # schema duy nhất cho cả 2 dialect
     schemas.py           # contract planner / tool result / final reply (v1)
-    seed.py              # persona mẫu Hoàng Nam (HƯ CẤU)
+    seed.py              # seed 200 persona AUTO_* từ data/personas.json (HƯ CẤU)
     api.py / main.py     # FastAPI + sandbox UI
     static/index.html    # sandbox: chọn persona, comment nhiều lượt, trace
     providers/
@@ -155,7 +155,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 #   Bước 3: chọn người bình luận -> nhập comment -> bấm "Gửi comment",
 #           persona trả lời ngay dưới đó kèm trạng thái sent/review/error
 #           và trace mở rộng (planner, tool, fact/story đã lưu, validator)
-# API: POST /seed, POST /threads, POST /turns, GET /personas/hoang-nam,
+# API: POST /seed, POST /threads, POST /turns, GET /personas/AUTO_029,
 #      GET /threads/{id}/messages, POST /personas/{id}/stories/{event_id}/revoke
 # Gửi lặp: gửi lại cùng header Idempotency-Key để kiểm tra không gửi trùng.
 # Lưu ý: server chạy trên máy này (127.0.0.1:8000); nếu mở từ máy khác,
@@ -278,10 +278,14 @@ là giống nhau, đã có test riêng cho trường hợp nhiều xe -> ambiguo
 
 ## 9. Giả định (đã chọn để không chặn tiến độ, đều điều chỉnh được)
 
-- Persona mẫu Hoàng Nam đúng §15; màu xe và chuyến đi cụ thể KHÔNG seed
-  sẵn, để đi qua luồng propose -> lưu (Fake chọn “trắng” và chuyến Nam
-  Định làm giá trị đề xuất xác định; Luna thật sẽ tự chọn và vẫn phải qua
-  engine kiểm chứng).
+- Seed 200 persona AUTO_* (thay hẳn seed 2 persona cũ ngày 2026-11-02):
+  map cơ học từ data/personas.json, không bịa field nguồn không có —
+  vehicle_model=car_owned nguyên văn, memory[] thành story
+  event_type="memory", profile từ occupation/lifestyle; KHÔNG có
+  purchased_at/trim/is_first_car, KHÔNG có category/tag taxonomy
+  (category 5 nhóm và hashtag của nguồn giữ nguyên trong JSON để bước
+  RAG dùng sau). is_fictional=True theo giả định mã AUTO_ — cần Phước
+  xác nhận fictional trước khi dùng rộng.
 - Planner là tool đầu tiên trong vòng tool calling thay vì 1 LLM call
   riêng (lý do ở §1).
 - `submit_final_reply` là một tool để ép structured JSON thay vì parse
@@ -315,10 +319,12 @@ Persona có chiều sâu, nhất quán, khơi gợi nhu cầu tự nhiên — kh
 - **Runtime prompt v1:** PERSONA_CORE, STYLE_GUIDE, RELEVANT_PERSONA_FACTS,
   RELEVANT_MEMORIES, PRODUCT_FACTS, CUSTOMER_STATE, VERIFIED_CONVERSATION_CONTEXT,
   CONVERSATION_POLICY (8 hướng đáp, tối đa 1 câu hữu ích/lượt).
-- **Hai persona distinct + seed idempotent:** Hoàng Nam (Creta, xe đầu đời; màu/chuyến
-  chỉ qua propose) và Minh Anh (Tucson, đã đổi xe, gia đình có con nhỏ, story Vũng Tàu
-  hoàn chỉnh, price mẫu 769 riêng). Admin: mở `/admin` để xem profile, timeline, story,
-  validator, draft, retrieval log. Báo cáo đầy đủ: `docs/persona-depth-report.md`.
+- **200 persona + seed idempotent (từ 2026-11-02, thay seed 2 persona cũ):**
+  mỗi persona có profile, 1 perspective, style guide, fact vehicle_model
+  và memory story; seed lại purge persona không còn trong dữ liệu mới.
+  Admin: mở `/admin` để xem profile, timeline, story,
+  validator, draft, retrieval log. Báo cáo đầy đủ: `docs/persona-depth-report.md`
+  (mô tả seed cũ, giữ làm lịch sử).
 - **Kiểm chứng:** pytest 63 passed, synthetic 10/10, improvement eval 11/11,
   persona-depth eval 7/7 (tất cả Fake — không phải bằng chứng Luna thật; live Luna và
   live Neon vẫn chưa kiểm chứng).

@@ -51,7 +51,7 @@ def main() -> int:
     total_cost = 0.0
     for text in TURNS:
         r = pipe.run(TurnRequest(
-            persona_id="hoang-nam",
+            persona_id="AUTO_029",
             post_text="Mình mới lấy Creta đi làm hàng ngày, cuối tuần về quê.",
             post_vehicle_models=["Hyundai Creta"],
             actor_id="actor-1", text=text, thread_id=thread_id))

@@ -27,7 +27,13 @@ def test_taxonomy_seed_idempotent(session):
 
 def test_story_tags_categories_activate_on_sent(pipe, session):
     seed_taxonomy(session)
-    r = turn(pipe, "Bác có kỷ niệm nào đáng nhớ với xe không?")
+    # Test này cần persona CHƯA có story để Fake propose story mới;
+    # AUTO_* nào cũng đã có memory story nên dùng fixture không story.
+    from conftest import make_persona
+    pid = make_persona(session, "fix-no-stories",
+                       {"vehicle_model": "Hyundai Creta"})
+    r = turn(pipe, "Bác có kỷ niệm nào đáng nhớ với xe không?",
+             persona_id=pid)
     assert r.status == "sent"
     assert r.saved_stories, "Fake phải propose story và lưu vào saved_stories"
     st = r.saved_stories[0]
@@ -50,7 +56,7 @@ def test_story_unknown_category_blocked(pipe, session):
     # Tạo thread tối thiểu để ToolExecutor có context.
     r = turn(pipe, "Bác đang đi xe gì?")
     thread = session.query(Thread).filter_by(id=r.thread_id).first()
-    ex = ToolExecutor(session, "hoang-nam", thread.id, "actor-1")
+    ex = ToolExecutor(session, "AUTO_029", thread.id, "actor-1")
     res = ex.execute("propose_story", {
         "summary": "Chuyến đi đâu đó.", "body": "Đi đâu đó.",
         "tags": ["usage.city_commute"], "categories": ["category_bia"]})
@@ -96,14 +102,19 @@ def test_retrieval_never_tellable_excluded(session):
 
 
 def test_validator_catches_before_purchase_story(session):
+    # Seed mới không có purchased_at nên dùng fixture giữ đúng ý test:
+    # story trip trước ngày mua phải bị validator bắt timeline.
+    from conftest import make_persona
     from app.models import PersonaStory
+    make_persona(session, "fix-before-purchase", {
+        "vehicle_model": "Hyundai Creta", "purchased_at": "2024-03"})
     session.add(PersonaStory(
-        event_id="evt_early", persona_id="hoang-nam", title="Trước khi mua",
+        event_id="evt_early", persona_id="fix-before-purchase", title="Trước khi mua",
         summary="Đi xe trước khi mua", body="Đi xe trước khi mua.",
         entities={}, event_type="trip", event_date="2023-01",
         event_date_precision="month", status="active"))
     session.commit()
-    res = validate_persona(session, "hoang-nam")
+    res = validate_persona(session, "fix-before-purchase")
     assert any("timeline_before_purchase" in e for e in res["errors"])
 
 
@@ -162,7 +173,7 @@ def test_customer_need_kind_hypothesis_not_fact(pipe, session):
 
 
 def test_runtime_prompt_contract(session):
-    persona = session.get(Persona, "hoang-nam")
+    persona = session.get(Persona, "AUTO_029")
     out = build_runtime_prompt(persona, None, [], None, [], [], [], "test", "ctx")
     assert out["version"] == RUNTIME_PROMPT_VERSION
     # CURRENT_MESSAGE không phải section trong prompt text: nó là message

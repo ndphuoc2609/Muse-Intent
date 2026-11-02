@@ -8,13 +8,19 @@ def test_ask_existing_persona_fact(pipe):
     assert r.planner["intents"]
 
 
-def test_ask_purchase_time_and_family_not_price(pipe):
-    r = turn(pipe, "Bác mua xe lúc nào?")
+def test_ask_purchase_time_and_family_not_price(pipe, session):
+    # Seed mới không có purchased_at nên test dùng fixture riêng giữ
+    # đúng ý hồi quy: thời điểm mua trả đúng + "gia đình" không bị
+    # nhận nhầm thành hỏi "giá".
+    from conftest import make_persona
+    pid = make_persona(session, "fix-purchase-time", {
+        "vehicle_model": "Hyundai Creta", "purchased_at": "2024-03"})
+    r = turn(pipe, "Bác mua xe lúc nào?", persona_id=pid)
     assert r.status == "sent"
     assert "2024-03" in (r.reply_text or "")
     # "gia đình" không được nhận nhầm thành hỏi "giá".
     r2 = turn(pipe, "Mình chủ yếu chở gia đình đi xa.",
-              thread_id=r.thread_id)
+              thread_id=r.thread_id, persona_id=pid)
     assert "599" not in (r2.reply_text or "")
 
 
@@ -140,7 +146,7 @@ def test_history_sent_as_real_messages_not_only_system(session):
 
     def turn2(text, thread_id=None):
         return pipe2.run(TurnRequest(
-            persona_id="hoang-nam", post_text="Bài về Creta.",
+            persona_id="AUTO_029", post_text="Bài về Creta.",
             post_vehicle_models=["Hyundai Creta"], actor_id="actor-1",
             text=text, thread_id=thread_id))
 
@@ -166,7 +172,7 @@ def test_history_keeps_last_20_not_first_20(session):
     rec = _RecordingProvider()
     pipe2 = Pipeline(session, rec, FakeSender())
     r1 = pipe2.run(TurnRequest(
-        persona_id="hoang-nam", post_text="Bài về Creta.",
+        persona_id="AUTO_029", post_text="Bài về Creta.",
         post_vehicle_models=["Hyundai Creta"], actor_id="actor-1",
         text="bắt đầu"))
     base = datetime.now(timezone.utc)
@@ -178,7 +184,7 @@ def test_history_keeps_last_20_not_first_20(session):
                             created_at=base + timedelta(seconds=i)))
     session.commit()
     pipe2.run(TurnRequest(
-        persona_id="hoang-nam", post_text="Bài về Creta.",
+        persona_id="AUTO_029", post_text="Bài về Creta.",
         post_vehicle_models=["Hyundai Creta"], actor_id="actor-1",
         text="lượt mới", thread_id=r1.thread_id))
     # System của lượt mới là system đầu tiên chứa msg-29 (lượt 1 chưa có

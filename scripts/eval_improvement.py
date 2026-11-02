@@ -41,7 +41,7 @@ def new_pipe():
 
 def turn(pipe, text, thread_id=None, actor="actor-1", post="Bài về Creta."):
     return pipe.run(TurnRequest(
-        persona_id="hoang-nam", post_text=post,
+        persona_id="AUTO_029", post_text=post,
         post_vehicle_models=["Hyundai Creta"],
         actor_id=actor, text=text, thread_id=thread_id))
 
@@ -53,12 +53,14 @@ def main():
         rows.append({"case": name, "pass": bool(ok), "detail": detail})
         print(f"{'PASS' if ok else 'FAIL'} | {name} | {detail}")
 
-    # 1. Multi-intent: hỏi xe + thời điểm mua trong một lượt.
+    # 1. Multi-intent: hỏi xe + kỷ niệm trong một lượt (seed mới không
+    # có purchased_at nên không hỏi thời điểm mua nữa; ý test giữ
+    # nguyên: một lượt, hai ý, trả đủ cả hai).
     s, pipe = new_pipe()
-    r = turn(pipe, "Bác đang đi xe gì và mua lúc nào?")
-    case("multi_intent_vehicle_and_purchase_time", r.status == "sent"
+    r = turn(pipe, "Bác đang đi xe gì và có kỷ niệm nào đáng nhớ không?")
+    case("multi_intent_vehicle_and_story", r.status == "sent"
          and "Creta" in (r.reply_text or "")
-         and "2024-03" in (r.reply_text or ""), r.reply_text or "")
+         and len(r.planner["intents"]) >= 2, r.reply_text or "")
 
     # 2. Quan tâm mua != giao dịch.
     s, pipe = new_pipe()

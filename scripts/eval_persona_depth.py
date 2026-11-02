@@ -46,44 +46,60 @@ def main():
               ("| " + detail if detail and not cond else ""))
 
     # 1. Validator đạt cho cả hai persona (không error).
-    for pid in ("hoang-nam", "minh-anh"):
+    for pid in ("AUTO_029", "AUTO_089"):
         v = validate_persona(s, pid)
         check(f"validator {pid} không có error", not v["errors"],
               str(v["errors"]))
 
     # 2. Isolation: cùng câu hỏi, hai persona trả khác nhau (xe khác nhau).
-    r_nam = turn(pipe, "hoang-nam", "Bác đang đi xe gì?")
-    r_anh = turn(pipe, "minh-anh", "Bác đang đi xe gì?")
+    r_nam = turn(pipe, "AUTO_029", "Bác đang đi xe gì?")
+    r_anh = turn(pipe, "AUTO_089", "Bác đang đi xe gì?")
     check("isolation: Nam nói Creta, Anh nói Tucson",
           "Creta" in (r_nam.reply_text or "")
           and "Tucson" in (r_anh.reply_text or ""))
 
-    # 3. Story có tags/categories và active sau sent.
-    r = turn(pipe, "hoang-nam", "Bác có kỷ niệm nào đáng nhớ với xe không?")
+    # 3. Story có tags/categories và active sau sent. Cần persona CHƯA
+    # có story để Fake propose story mới (AUTO_* nào cũng đã có memory
+    # story nên Fake sẽ kể lại thay vì propose).
+    from app.models import Persona, PersonaFact
+    s.add(Persona(id="eval-no-stories", display_name="Eval",
+                  stance="peer_user", is_fictional=True))
+    s.add(PersonaFact(persona_id="eval-no-stories",
+                      fact_key="vehicle_model", value="Hyundai Creta",
+                      source="test"))
+    s.commit()
+    r = turn(pipe, "eval-no-stories",
+             "Bác có kỷ niệm nào đáng nhớ với xe không?")
     ok = bool(r.saved_stories and r.saved_stories[0].get("tags")
               and r.saved_stories[0].get("story_categories"))
     check("story propose có tags + categories", ok)
 
     # 4. Không gán nhu cầu 7 chỗ từ câu chở gia đình.
-    r2 = turn(pipe, "hoang-nam", "Mình chủ yếu chở gia đình đi xa.")
+    r2 = turn(pipe, "AUTO_029", "Mình chủ yếu chở gia đình đi xa.")
     check("không gán 7 chỗ từ câu gia đình",
           "7 chỗ" not in (r2.reply_text or "")
           and not any("7 chỗ" in (f.get("value_normalized") or "")
                       for f in r2.saved_customer_facts))
 
     # 5. Không hỏi lặp sau câu trả lời ngắn.
-    r3 = turn(pipe, "hoang-nam", "Cũng tính lấy xe về đi phố bác ạ")
-    r4 = turn(pipe, "hoang-nam", "Tiết kiệm thôi, đang tính kiếm đại lý "
+    r3 = turn(pipe, "AUTO_029", "Cũng tính lấy xe về đi phố bác ạ")
+    r4 = turn(pipe, "AUTO_029", "Tiết kiệm thôi, đang tính kiếm đại lý "
                                  "để xem xe ạ", thread_id=r3.thread_id)
     check("không hỏi lặp câu ưu tiên ở lượt 5",
           r4.reply_text != r3.reply_text)
 
-    # 6. Seed idempotent: gọi lại không tạo trùng persona.
-    before = s.query(__import__("app.models", fromlist=["Persona"]).Persona).count()
+    # 6. Seed idempotent: gọi lại không tạo trùng persona AUTO_*.
+    # (Đếm riêng AUTO_* vì seed mới purge persona lạ khỏi DB — fixture
+    # eval-no-stories thêm ở case 3 bị purge là đúng thiết kế.)
+    from app.models import Persona
+    def n_auto():
+        return sum(1 for p in s.query(Persona).all()
+                   if p.id.startswith("AUTO_"))
+    before = n_auto()
     seed(s)
-    after = s.query(__import__("app.models", fromlist=["Persona"]).Persona).count()
-    check("seed idempotent (số persona không đổi)", before == after,
-          f"{before} -> {after}")
+    after = n_auto()
+    check("seed idempotent (số persona AUTO_* không đổi)",
+          before == after == 200, f"{before} -> {after}")
 
     n_pass = sum(1 for _, ok, _ in cases if ok)
     print(f"\n{n_pass}/{len(cases)} pass (Fake only, không phải bằng chứng Luna).")

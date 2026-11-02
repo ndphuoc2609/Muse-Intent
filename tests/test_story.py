@@ -5,12 +5,17 @@ from app.models import PersonaStory
 from conftest import turn
 
 
-def test_create_and_recall_story(pipe):
-    r = turn(pipe, "Bác có kỷ niệm nào đáng nhớ với xe không?")
+def test_create_and_recall_story(pipe, session):
+    from conftest import make_persona
+    pid = make_persona(session, "fix-no-stories",
+                       {"vehicle_model": "Hyundai Creta"})
+    r = turn(pipe, "Bác có kỷ niệm nào đáng nhớ với xe không?",
+             persona_id=pid)
     assert r.status == "sent"
     assert r.saved_stories, "story phải được lưu trước khi gửi"
     event_id = r.saved_stories[0]["event_id"]
-    r2 = turn(pipe, "Kể lại chuyến đi đó đi bác.", thread_id=r.thread_id)
+    r2 = turn(pipe, "Kể lại chuyến đi đó đi bác.", thread_id=r.thread_id,
+              persona_id=pid)
     assert r2.status == "sent"
     # Lượt sau phải tái sử dụng story cũ, không tạo story mới trùng.
     assert not r2.saved_stories or all(
@@ -52,7 +57,10 @@ def test_addendum_and_conflicting_addendum(pipe, session):
 
 
 def test_timeline_before_purchase_rejected(pipe, session):
-    ex = ToolExecutor(session, "hoang-nam", "t", "actor-1")
+    from conftest import make_persona
+    make_persona(session, "fix-before-purchase", {
+        "vehicle_model": "Hyundai Creta", "purchased_at": "2024-03"})
+    ex = ToolExecutor(session, "fix-before-purchase", "t", "actor-1")
     r = ex.execute("propose_story", {
         "title": "Đi xe trước khi mua", "summary": "Đi Creta từ 2023",
         "body": "Mình đi Creta từ 2023.",
@@ -80,11 +88,16 @@ def test_two_personas_isolated(pipe, session):
 
 
 def test_revoke_story(pipe, session):
-    r = turn(pipe, "Bác có kỷ niệm nào đáng nhớ với xe không?")
+    from conftest import make_persona
+    pid = make_persona(session, "fix-no-stories",
+                       {"vehicle_model": "Hyundai Creta"})
+    r = turn(pipe, "Bác có kỷ niệm nào đáng nhớ với xe không?",
+             persona_id=pid)
     eid = r.saved_stories[0]["event_id"]
     st = session.get(PersonaStory, eid)
     st.status = "revoked"
     session.commit()
-    r2 = turn(pipe, "Kể lại chuyến đi đó đi bác.", thread_id=r.thread_id)
+    r2 = turn(pipe, "Kể lại chuyến đi đó đi bác.", thread_id=r.thread_id,
+              persona_id=pid)
     # Story đã thu hồi không được kể lại như canonical active.
     assert r2.status == "sent"

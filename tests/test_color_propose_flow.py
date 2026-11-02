@@ -98,28 +98,28 @@ class ColorProposingProvider:
 def test_color_propose_then_remembered(session):
     pipe = Pipeline(session, ColorProposingProvider(), FakeSender())
     r1 = pipe.run(TurnRequest(
-        persona_id="hoang-nam", post_text="Bài về Creta.",
+        persona_id="AUTO_029", post_text="Bài về Creta.",
         post_vehicle_models=["Hyundai Creta"],
         actor_id="actor-1", text="Bác đi xe màu gì thế?"))
     assert r1.status == "sent", f"validator_errors={r1.validator_errors}"
     assert "trắng" in (r1.reply_text or "")
     # Đã active trong DB sau sent (không còn pending).
     row = session.query(PersonaFact).filter_by(
-        persona_id="hoang-nam", fact_key="vehicle_color",
+        persona_id="AUTO_029", fact_key="vehicle_color",
         status="active").first()
     assert row is not None and row.value == "trắng"
     # Lượt 2: cùng thread, hỏi lại -> trả cùng màu từ canon, không tạo
     # thêm fact, không propose lại.
     pipe2 = Pipeline(session, ColorProposingProvider(), FakeSender())
     r2 = pipe2.run(TurnRequest(
-        persona_id="hoang-nam", post_text="Bài về Creta.",
+        persona_id="AUTO_029", post_text="Bài về Creta.",
         post_vehicle_models=["Hyundai Creta"],
         actor_id="actor-1", text="Bác đi xe màu gì thế?",
         thread_id=r1.thread_id))
     assert r2.status == "sent"
     assert "trắng" in (r2.reply_text or "")
     rows = session.query(PersonaFact).filter_by(
-        persona_id="hoang-nam", fact_key="vehicle_color").all()
+        persona_id="AUTO_029", fact_key="vehicle_color").all()
     assert len(rows) == 1
 
 
@@ -128,16 +128,16 @@ def test_color_conflict_does_not_overwrite(session):
     # (Fixture session đã seed sẵn Hoàng Nam.)
     pipe = Pipeline(session, ColorProposingProvider(), FakeSender())
     r1 = pipe.run(TurnRequest(
-        persona_id="hoang-nam", post_text="Bài về Creta.",
+        persona_id="AUTO_029", post_text="Bài về Creta.",
         post_vehicle_models=["Hyundai Creta"],
         actor_id="actor-1", text="Bác đi xe màu gì thế?"))
     assert r1.status == "sent"
-    ex = ToolExecutor(session, "hoang-nam", r1.thread_id, "actor-1")
+    ex = ToolExecutor(session, "AUTO_029", r1.thread_id, "actor-1")
     res = ex.execute("propose_persona_fact",
                      {"fact_key": "vehicle_color", "value": "đen",
                       "source": "generated"})
     assert res.status == "CONFLICT"
     row = session.query(PersonaFact).filter_by(
-        persona_id="hoang-nam", fact_key="vehicle_color",
+        persona_id="AUTO_029", fact_key="vehicle_color",
         status="active").first()
     assert row.value == "trắng"

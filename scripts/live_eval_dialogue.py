@@ -8,8 +8,12 @@ Chạy chỉ khi đủ điều kiện, nếu không thoát mã 2 và KHÔNG tố
 
 Ngân sách: dừng ngay khi tổng cost đã biết vượt LIVE_EVAL_BUDGET_USD
 (mặc định 1.0). Cost provider không trả về được ghi là unknown, không
-coi là 0. Persona minh-anh chỉ dùng ở case tucson_vague_buy (cần story
-Tucson đã seed); các case còn lại dùng hoang-nam + bài Creta mặc định.
+coi là 0. Persona AUTO_089 (Hyundai Tucson) chỉ dùng ở case
+tucson_vague_buy (cần story nhắc Tucson); các case còn lại dùng
+AUTO_029 (Hyundai Creta) + bài Creta mặc định. Lưu ý từ seed 200
+(2026-11-02): seed mới KHÔNG có purchased_at nên case
+two_facts_one_turn giờ đo trả lời từng phần (xe có dữ kiện, thời
+điểm mua không có dữ kiện) thay vì đủ hai fact như trước.
 
 Kết quả: runs/live_eval_dialogue.json — transcript thô + status,
 latency, cost, validator_errors, planner goal để HUMAN review theo các
@@ -27,30 +31,30 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # (tên case, persona, post vehicles, [lượt khách])
 CASES = [
-    ("two_facts_one_turn", "hoang-nam", ["Hyundai Creta"],
+    ("two_facts_one_turn", "AUTO_029", ["Hyundai Creta"],
      ["Bác đang đi xe gì và mua lúc nào?"]),
-    ("interest_not_transaction", "hoang-nam", ["Hyundai Creta"],
+    ("interest_not_transaction", "AUTO_029", ["Hyundai Creta"],
      ["Tôi cũng muốn mua một chiếc như vậy."]),
-    ("short_answer_priority", "hoang-nam", ["Hyundai Creta"],
+    ("short_answer_priority", "AUTO_029", ["Hyundai Creta"],
      ["Tôi cũng muốn mua một chiếc như vậy.",
       "Tiết kiệm thôi, đang tính kiếm đại lý để xem xe ạ."]),
-    ("topic_switch_keeps_pending", "hoang-nam", ["Hyundai Creta"],
+    ("topic_switch_keeps_pending", "AUTO_029", ["Hyundai Creta"],
      ["Tôi cũng muốn mua một chiếc như vậy.",
       "Bác đi xe gì?"]),
-    ("third_party_correction", "hoang-nam", ["Hyundai Creta"],
+    ("third_party_correction", "AUTO_029", ["Hyundai Creta"],
      ["Mình mua cho bố.",
       "À không, mua cho mình."]),
-    ("browse_only", "hoang-nam", ["Hyundai Creta"],
+    ("browse_only", "AUTO_029", ["Hyundai Creta"],
      ["Mình chỉ xem thôi."]),
-    ("partial_answer_missing_product", "hoang-nam", ["Hyundai Santa Fe"],
+    ("partial_answer_missing_product", "AUTO_029", ["Hyundai Santa Fe"],
      ["Bác đi xe gì và con này giá bao nhiêu?"]),
-    ("color_propose_and_recall", "hoang-nam", ["Hyundai Creta"],
+    ("color_propose_and_recall", "AUTO_029", ["Hyundai Creta"],
      ["Bác đi xe màu gì thế?",
       "Thế màu xe bác là gì nhỉ?"]),
-    ("tucson_vague_buy", "minh-anh", ["Hyundai Creta"],
+    ("tucson_vague_buy", "AUTO_089", ["Hyundai Creta"],
      ["Đi những đâu rồi",
       "Tôi cũng tính lấy 1 chiếc"]),
-    ("long_thread_recall", "hoang-nam", ["Hyundai Creta"],
+    ("long_thread_recall", "AUTO_029", ["Hyundai Creta"],
      ["Chào bạn.", "Chào bạn.", "Chào bạn.", "Chào bạn.", "Chào bạn.",
       "Chào bạn.", "Bác đi xe gì?"]),
 ]

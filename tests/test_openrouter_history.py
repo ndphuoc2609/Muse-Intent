@@ -113,7 +113,7 @@ def test_pipeline_history_passes_openai_strict_check(pipe, session):
     strict = StrictProvider()
     p = Pipeline(session, strict, FakeSender())
     r = p.run(TurnRequest(
-        persona_id="hoang-nam", post_text="Bài về Creta.",
+        persona_id="AUTO_029", post_text="Bài về Creta.",
         post_vehicle_models=["Hyundai Creta"],
         actor_id="actor-1", text="Bác đi xe màu gì thế?"))
     assert strict.calls >= 3

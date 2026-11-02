@@ -23,18 +23,21 @@ from app.providers.fake import FakeProvider
 from app.schemas import TurnRequest
 from app.seed import seed
 
-# (input, kỳ vọng: status, chuỗi phải có trong reply, chủ thể customer fact)
+# (input, kỳ vọng: status, chuỗi phải có trong reply, chủ thể customer
+#  fact, chuỗi KHÔNG được có trong reply). Seed mới không có
+#  purchased_at nên case mua xe đổi thành: không được bịa ngày mua.
 CASES = [
-    ("Bác đang đi xe gì?", "sent", "Creta", None),
-    ("Bác mua xe lúc nào?", "sent", "2024-03", None),
-    ("Bác đi xe màu gì?", "sent", "trắng", None),
-    ("Giá Creta bản cao nhất bao nhiêu?", "sent", "599", None),
-    ("Tôi muốn đặt cọc ngay.", "review", "không xác nhận", None),
-    ("Thôi, mình không muốn tiếp tục nữa.", "sent", "dừng", None),
-    ("Em đang cân nhắc con này cho mẹ.", "sent", None, "third_person"),
-    ("Mình chủ yếu chở gia đình đi xa.", "sent", None, "self"),
-    ("Bác có phải AI không?", "sent", "không phải người thật", None),
-    ("Bác có kỷ niệm nào đáng nhớ với xe không?", "sent", "Nam Định", None),
+    ("Bác đang đi xe gì?", "sent", "Creta", None, None),
+    ("Bác mua xe lúc nào?", "sent", None, None, "2024"),
+    ("Bác đi xe màu gì?", "sent", "trắng", None, None),
+    ("Giá Creta bản cao nhất bao nhiêu?", "sent", "599", None, None),
+    ("Tôi muốn đặt cọc ngay.", "review", "không xác nhận", None, None),
+    ("Thôi, mình không muốn tiếp tục nữa.", "sent", "dừng", None, None),
+    ("Em đang cân nhắc con này cho mẹ.", "sent", None, "third_person", None),
+    ("Mình chủ yếu chở gia đình đi xa.", "sent", None, "self", None),
+    ("Bác có phải AI không?", "sent", "không phải người thật", None, None),
+    # AUTO_029 kể lại memory đầu tiên (chó Golden), không còn trip Nam Định.
+    ("Bác có kỷ niệm nào đáng nhớ với xe không?", "sent", "Golden", None, None),
 ]
 
 
@@ -45,18 +48,20 @@ def main():
     seed(session)
     pipe = Pipeline(session, FakeProvider(), FakeSender())
     rows = []
-    for text, exp_status, exp_substr, exp_subject in CASES:
+    for text, exp_status, exp_substr, exp_subject, exp_absent in CASES:
         r = pipe.run(TurnRequest(
-            persona_id="hoang-nam", post_text="Bài về Creta.",
+            persona_id="AUTO_029", post_text="Bài về Creta.",
             post_vehicle_models=["Hyundai Creta"],
             actor_id="actor-1", text=text))
         ok_status = r.status == exp_status
         ok_text = exp_substr is None or exp_substr in (r.reply_text or "")
         ok_subject = exp_subject is None or any(
             f["subject"] == exp_subject for f in r.saved_customer_facts)
+        ok_absent = exp_absent is None or exp_absent not in (r.reply_text or "")
         rows.append({"input": text, "status": r.status,
                      "expected_status": exp_status, "reply": r.reply_text,
-                     "pass": bool(ok_status and ok_text and ok_subject)})
+                     "pass": bool(ok_status and ok_text and ok_subject
+                                  and ok_absent)})
         print(f"{'PASS' if rows[-1]['pass'] else 'FAIL'} | {text} -> "
               f"[{r.status}] {r.reply_text}")
     n = sum(r["pass"] for r in rows)

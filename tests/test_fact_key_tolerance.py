@@ -33,7 +33,11 @@ LUNA_GUESSED_KEYS = [
 
 
 def test_luna_guessed_keys_return_seeded_facts(pipe, session):
-    ex = ToolExecutor(session, "hoang-nam", "t", "actor-1")
+    from tests.conftest import make_persona
+    make_persona(session, "fix-fact-keys", {
+        "vehicle_model": "Hyundai Creta",
+        "purchased_at": "2024-03"})
+    ex = ToolExecutor(session, "fix-fact-keys", "t", "actor-1")
     r = ex.execute("get_persona_facts", {"keys": LUNA_GUESSED_KEYS})
     assert r.status == "FOUND"
     by_key = {f["fact_key"]: f["value"] for f in r.data}
@@ -42,7 +46,11 @@ def test_luna_guessed_keys_return_seeded_facts(pipe, session):
 
 
 def test_unknown_only_keys_fallback_to_all_canon(pipe, session):
-    ex = ToolExecutor(session, "hoang-nam", "t", "actor-1")
+    from tests.conftest import make_persona
+    make_persona(session, "fix-fact-keys", {
+        "vehicle_model": "Hyundai Creta",
+        "purchased_at": "2024-03"})
+    ex = ToolExecutor(session, "fix-fact-keys", "t", "actor-1")
     r = ex.execute("get_persona_facts", {"keys": ["foo_bar_xyz"]})
     assert r.status == "FOUND"
     assert "keys_unmatched_fallback_all" in (r.reason or "")
@@ -50,9 +58,13 @@ def test_unknown_only_keys_fallback_to_all_canon(pipe, session):
 
 
 def test_known_but_inactive_key_stays_not_found(pipe, session):
-    # vehicle_color là key đúng registry nhưng chưa active trong seed mới
+    # vehicle_color là key đúng registry nhưng chưa active
     # (màu chỉ xuất hiện qua propose) -> NOT_FOUND, không fallback.
-    ex = ToolExecutor(session, "hoang-nam", "t", "actor-1")
+    from tests.conftest import make_persona
+    make_persona(session, "fix-fact-keys", {
+        "vehicle_model": "Hyundai Creta",
+        "purchased_at": "2024-03"})
+    ex = ToolExecutor(session, "fix-fact-keys", "t", "actor-1")
     r = ex.execute("get_persona_facts", {"keys": ["vehicle_color"]})
     assert r.status == "NOT_FOUND"
     assert r.data == []
@@ -114,9 +126,12 @@ class GuessingProvider:
 
 
 def test_guessing_provider_turn_now_sends(session):
+    from tests.conftest import make_persona
+    make_persona(session, "fix-fact-keys", {
+        "vehicle_model": "Hyundai Creta", "purchased_at": "2024-03"})
     p = Pipeline(session, GuessingProvider(), FakeSender())
     r = p.run(TurnRequest(
-        persona_id="hoang-nam", post_text="Bài về Creta.",
+        persona_id="fix-fact-keys", post_text="Bài về Creta.",
         post_vehicle_models=["Hyundai Creta"],
         actor_id="actor-1", text="Bác đang đi xe gì và mua lúc nào?"))
     assert r.status == "sent", f"validator_errors={r.validator_errors}"
