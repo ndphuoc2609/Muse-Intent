@@ -295,6 +295,14 @@ class Pipeline:
         history = list(reversed(self.s.execute(
             select(Message).where(Message.thread_id == thread.id)
             .order_by(Message.created_at.desc()).limit(20)).scalars().all()))
+        # Cổng lead: lượt này hoặc lượt khách trước trong thread có tín
+        # hiệu quan tâm mua xe / hỏi đại lý / liên hệ. Dùng cho cả
+        # COMPANY_EVIDENCE và validator (cho phép hỏi SĐT trong luồng
+        # lead, vẫn cấm hỏi địa chỉ nhà).
+        from .rag import has_lead_signal as _has_lead_signal
+        _lead_capture = _has_lead_signal(req.text) or any(
+            m.role == "user" and _has_lead_signal(m.text or "")
+            for m in history)
         # Load cả pending và declined: query cũ chỉ lấy pending rồi
         # kiểm tra status==declined trong danh sách pending nên
         # refused_keys luôn rỗng — câu từ chối bị mất khỏi context.
@@ -360,6 +368,8 @@ class Pipeline:
         trace_retrieval: list[dict] = []
         trace_rag_evidence: list[dict] = []
         trace_rag_error: str | None = None
+        trace_company_evidence: list[dict] = []
+        trace_company_error: str | None = None
         planner: Planner | None = None
         final: dict | None = None
         stop_reason: str | None = None
@@ -558,6 +568,51 @@ class Pipeline:
                                     trace_rag_evidence = _rag
                         except Exception as _rag_exc:
                             trace_rag_error = str(_rag_exc)
+                        # RAG company (đại lý): chỉ khi lượt này hoặc
+                        # lượt khách trước trong thread có tín hiệu lead
+                        # (quan tâm mua / hỏi đại lý / liên hệ) — lượt
+                        # thường không đưa đại lý vào prompt. Dùng cùng
+                        # query vector, ngưỡng và limit như RAG persona.
+                        try:
+                            from .embeddings import build_embedder_from_meta
+                            from .rag import (DEFAULT_THRESHOLDS,
+                                              load_index_meta,
+                                              retrieve_company_chunks)
+                            if _lead_capture:
+                                _meta2 = load_index_meta(self.s)
+                                _emb2 = build_embedder_from_meta(_meta2)
+                                if _emb2 is not None:
+                                    _qv2 = _emb2.embed([req.text])[0]
+                                    _th2 = float(_meta2.get(
+                                        "threshold", DEFAULT_THRESHOLDS.get(
+                                            str(_meta2.get("provider")),
+                                            0.2)))
+                                    _comp = retrieve_company_chunks(
+                                        self.s, _qv2, limit=3,
+                                        threshold=_th2)
+                                    if _comp:
+                                        for _d in _comp:
+                                            executor.retrieved[
+                                                _d["chunk_id"]] = (
+                                                "company", _d["text"],
+                                                {"status": "active"})
+                                        messages[0]["content"] += (
+                                            "\n\nCOMPANY_EVIDENCE (server "
+                                            "retrieval, chỉ dùng khi khách "
+                                            "quan tâm mua xe / hỏi đại lý; "
+                                            "muốn nêu đại lý thì claim kind "
+                                            "company với ref_id trong ngoặc, "
+                                            "copy nguyên văn không sửa; "
+                                            "KHÔNG bịa khuyến mãi hay con số "
+                                            "giá — sheet không có dữ liệu đó):"
+                                            "\n" + "\n".join(
+                                                f"- [{_d['chunk_id']}] "
+                                                f"{_d['text']} "
+                                                f"(score={_d['score']})"
+                                                for _d in _comp))
+                                        trace_company_evidence = _comp
+                        except Exception as _comp_exc:
+                            trace_company_error = str(_comp_exc)
                     continue
                 err = _validate_tool_args(tc.name, tc.arguments)
                 if err:
@@ -609,6 +664,8 @@ class Pipeline:
             "retrieval_evidence": trace_retrieval,
             "rag_evidence": trace_rag_evidence,
             "rag_error": trace_rag_error,
+            "company_evidence": trace_company_evidence,
+            "company_error": trace_company_error,
         }
         if final is None:
             msg = Message(thread_id=thread.id, role="persona", text="",
@@ -635,7 +692,8 @@ class Pipeline:
         for _repair in range(SETTINGS.max_validator_repairs + 1):
             validator_errors = validate(final, {
                 "retrieved": executor.retrieved, "opted_out": opted_out,
-                "asked_ai_identity": asked_ai, "refused_keys": refused})
+                "asked_ai_identity": asked_ai, "refused_keys": refused,
+                "lead_capture": _lead_capture})
             if not validator_errors:
                 break
             if _repair == SETTINGS.max_validator_repairs:

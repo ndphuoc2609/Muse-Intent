@@ -188,9 +188,15 @@ def validate(final: dict, ctx: dict) -> list[str]:
             if p in low:
                 errors.append(f"transaction_confirmation: chứa '{p}' "
                               "nhưng lượt này không phải handoff")
-    # 2. Xin thông tin riêng tư ở kênh public.
+    # 2. Xin thông tin riêng tư ở kênh public. Ngoại lệ: luồng lead
+    # (khách đã thể hiện quan tâm mua xe, xem pipeline _lead_capture)
+    # được hỏi SĐT — nhưng KHÔNG bao giờ được hỏi địa chỉ nhà.
+    _phone_phrases = ("cho mình số điện thoại", "cho xin số điện thoại",
+                      "gửi số điện thoại")
     for p in PRIVATE_REQUEST_PHRASES:
         if p in low:
+            if ctx.get("lead_capture") and p in _phone_phrases:
+                continue
             errors.append(f"private_request: '{p}' không được hỏi ở kênh public")
     # 3. Opt-out: không hỏi thêm, không gợi mở.
     if ctx.get("opted_out"):
@@ -209,7 +215,7 @@ def validate(final: dict, ctx: dict) -> list[str]:
     for claim in claims:
         kind, ref_id, value = claim.get("kind"), claim.get("ref_id"), \
             claim.get("value", "")
-        if kind in ("persona", "story", "product", "rag"):
+        if kind in ("persona", "story", "product", "rag", "company"):
             if not ref_id or ref_id not in retrieved:
                 errors.append(
                     f"unsourced_claim: claim {kind} '{value}' không có "
@@ -246,6 +252,10 @@ def validate(final: dict, ctx: dict) -> list[str]:
                 if not _story_matches(value, rvalue):
                     errors.append(f"rag_unsaved_detail: claim rag '{value}' "
                                   "không khớp chunk đã lưu")
+            elif kind == "company":
+                if not _story_matches(value, rvalue):
+                    errors.append(f"company_unsaved_detail: claim company "
+                                  f"'{value}' không khớp chunk đại lý đã lưu")
     # 7. Khẳng định có dữ kiện trong văn bản phải được claim bao phủ.
     errors.extend(_uncovered_errors(text, claims, retrieved))
     return errors

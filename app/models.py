@@ -436,8 +436,12 @@ class RagChunk(Base):
     thay toàn bộ bảng (id chunk ổn định theo nguồn, xem rag.py)."""
     __tablename__ = "rag_chunks"
     id: Mapped[str] = mapped_column(String(160), primary_key=True)
-    persona_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("personas.id"))
+    # Chunk persona: persona_id = mã persona. Chunk company (đại lý):
+    # persona_id NULL + domain='company' — mọi persona dùng chung, tách
+    # riêng khỏi corpus persona, không bao giờ trộn vào retrieval persona.
+    persona_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("personas.id"), nullable=True)
+    domain: Mapped[str] = mapped_column(String(32), default="persona")
     chunk_type: Mapped[str] = mapped_column(String(32))
     source_ref: Mapped[str] = mapped_column(String(160))
     text: Mapped[str] = mapped_column(Text)

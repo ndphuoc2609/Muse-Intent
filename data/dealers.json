@@ -1,0 +1,477 @@
+{
+  "source": "Google Sheet 1XCQMw8jSrEoDeiherh2SiCg9chbh-HTVrTYAOgZyUd0 tab 'Danh sách đại lý + email + vị trí'",
+  "dealers": [
+    {
+      "code": "VC004",
+      "name": "Hyundai Vinh",
+      "short": "HVIN",
+      "region": "Trung",
+      "province": "Nghệ An",
+      "address": "Km 3 + 500, đại lộ Lê Nin, xã Nghi Phú, TP Vinh, Nghệ An"
+    },
+    {
+      "code": "VC006",
+      "name": "Hyundai Huế",
+      "short": "HHUE",
+      "region": "Trung",
+      "province": "Huế",
+      "address": "Số 434 Nguyễn Tất Thành, phường Thanh Thuỷ, thành phố Huế"
+    },
+    {
+      "code": "VC020",
+      "name": "Hyundai Sông Hàn",
+      "short": "HSHA",
+      "region": "Trung",
+      "province": "TP Đà Nẵng",
+      "address": "86 Duy Tân, Q.Hải Châu, Tp.Đà Nẵng"
+    },
+    {
+      "code": "VC021",
+      "name": "Hyundai Gia Lai",
+      "short": "HGLA",
+      "region": "Trung",
+      "province": "Gia Lai",
+      "address": "Số 278 Lê Duẩn, phường An Phú, tỉnh Gia Lai"
+    },
+    {
+      "code": "VC037",
+      "name": "Hyundai Nha Trang",
+      "short": "HNTR",
+      "region": "Nam",
+      "province": "Khánh Hoà",
+      "address": "Km6, đường 23/10, thôn Võ Cang, phường Tây Nha Trang, tỉnh Khánh Hòa"
+    },
+    {
+      "code": "VC046",
+      "name": "Hyundai Sơn Trà",
+      "short": "HSTR",
+      "region": "Trung",
+      "province": "TP Đà Nẵng",
+      "address": "286 Phạm Hùng,Hòa Vang, Đà Nẵng,Việt Nam"
+    },
+    {
+      "code": "VC048",
+      "name": "Hyundai Đà Lạt",
+      "short": "HDLT",
+      "region": "Nam",
+      "province": "Lâm Đồng",
+      "address": "Số 22A, Đường 3 tháng 4, Phường Xuân Hương - Đà Lạt, Tỉnh Lâm Đồng"
+    },
+    {
+      "code": "VC060.1",
+      "name": "Hyundai Hà Tĩnh",
+      "short": "HHTI",
+      "region": "Trung",
+      "province": "Hà Tĩnh",
+      "address": "Xã Thạch Long, huyện Thạch Hà, tỉnh Hà Tĩnh"
+    },
+    {
+      "code": "VC062",
+      "name": "Hyundai Đắk Lắk",
+      "short": "HDLA",
+      "region": "Nam",
+      "province": "Đắk Lắk",
+      "address": "15A Nguyễn Chí Thanh, P.Tân An, Tp.Buôn Ma Thuột, Tỉnh Đắk Lắk"
+    },
+    {
+      "code": "VC074",
+      "name": "Hyundai Quảng Trị",
+      "short": "HQTR",
+      "region": "Trung",
+      "province": "Quảng Trị",
+      "address": "Thôn Phú Mỹ Kiên, xã Ái Tử, tỉnh Quảng Trị"
+    },
+    {
+      "code": "VC076",
+      "name": "Hyundai Quảng Ngãi",
+      "short": "HQNG",
+      "region": "Trung",
+      "province": "Quảng Ngãi",
+      "address": "Thôn Bình Đẳng, Xã Tịnh Ấn Đông, TP Quảng Ngãi, TỈnh Quảng Ngãi"
+    },
+    {
+      "code": "VC068",
+      "name": "Hyundai Bình Định",
+      "short": "HBDI",
+      "region": "Trung",
+      "province": "Gia Lai",
+      "address": "Lô OTM5-19, Khu đô thị mới Long Vân, Phường Quy Nhơn Bắc, Tỉnh Gia Lai"
+    },
+    {
+      "code": "VC079",
+      "name": "Hyundai Phú Yên",
+      "short": "HPYE",
+      "region": "Nam",
+      "province": "Đắk Lắk",
+      "address": "QL1A, Thôn Phú Vang, Phường Bình Kiến, Tỉnh Phú Yên"
+    },
+    {
+      "code": "VC096",
+      "name": "Hyundai Quảng Bình",
+      "short": "HQBI",
+      "region": "Trung",
+      "province": "Quảng Trị",
+      "address": "Đường Quang Trung, phường Đồng Hới, tỉnh Quảng Trị"
+    },
+    {
+      "code": "VN012",
+      "name": "Hyundai Hải Phòng",
+      "short": "HHPH",
+      "region": "Bắc",
+      "province": "TP Hải Phòng",
+      "address": "742 Nguyễn Văn Linh, Niệm Nghĩa, Q.Lê Chân, tỉnh Hải Phòng"
+    },
+    {
+      "code": "VN017",
+      "name": "Hyundai Thái Bình",
+      "short": "HTBI",
+      "region": "Bắc",
+      "province": "Hưng Yên",
+      "address": "204 Lý Thường Kiệt, thành phố Thái Bình, tỉnh Thái Bình"
+    },
+    {
+      "code": "VN018",
+      "name": "Hyundai Nam Đinh",
+      "short": "HNDI",
+      "region": "Bắc",
+      "province": "Ninh Bình",
+      "address": "Đại lộ Thiên Trường, xã Mỹ Hưng, huyện Mỹ Lộc, tỉnh Nam Định"
+    },
+    {
+      "code": "VN021",
+      "name": "Hyundai Yên Bái",
+      "short": "HYBA",
+      "region": "Bắc",
+      "province": "Lào Cai",
+      "address": "Đường Âu Cơ, phường Văn Phú, tỉnh Lào Cai"
+    },
+    {
+      "code": "VN026",
+      "name": "Hyundai Sơn La",
+      "short": "HSLA",
+      "region": "Bắc",
+      "province": "Sơn La",
+      "address": "Km 10, Tổ 5, Phường Chiềng Sinh, TP. Sơn La"
+    },
+    {
+      "code": "VN029",
+      "name": "Hyundai Đông Đô",
+      "short": "HDDO",
+      "region": "HN",
+      "province": "Hà Nội",
+      "address": "Số 987 Tam Trinh,phường Hoàng Mai, thành phố Hà Nội"
+    },
+    {
+      "code": "VN030",
+      "name": "Hyundai Phạm Văn Đồng",
+      "short": "HPVD",
+      "region": "HN",
+      "province": "Hà Nội",
+      "address": "138 đường Phạm Văn Đồng, Phương Xuân Đỉnh, Bắc Từ Liêm, Hà Nội"
+    },
+    {
+      "code": "VN041",
+      "name": "Hyundai Bắc Ninh",
+      "short": "HBNI",
+      "region": "Bắc",
+      "province": "Bắc Ninh",
+      "address": "Đường Lê Thái Tổ, P. Võ Cường, Tp. Bắc Ninh, tỉnh Bắc Ninh"
+    },
+    {
+      "code": "VN049",
+      "name": "Hyundai Hải Dương",
+      "short": "HHDU",
+      "region": "Bắc",
+      "province": "TP Hải Phòng",
+      "address": "245A Nguyễn Lương Bằng, P.Thanh Bình, TP Hải Dương"
+    },
+    {
+      "code": "VN054",
+      "name": "Hyundai Hà Đông",
+      "short": "HHDO",
+      "region": "HN",
+      "province": "Hà Nội",
+      "address": "Tổ 17, phường Yên Nghĩa, thành phố Hà Nội"
+    },
+    {
+      "code": "VN055.1",
+      "name": "Hyundai Thanh Hóa",
+      "short": "HTHO",
+      "region": "Trung",
+      "province": "Thanh Hóa",
+      "address": "MBQH 2792, Đường Hùng Vương, P Đông Hải, TP Thanh Hóa, Tỉnh Thanh Hóa"
+    },
+    {
+      "code": "VN056",
+      "name": "Hyundai Lào Cai",
+      "short": "HLCA",
+      "region": "Bắc",
+      "province": "Lào Cai",
+      "address": "Đại Lộ Trần Hưng Đạo Phường Nam Cường Thành Phố Lào Cai"
+    },
+    {
+      "code": "VN059",
+      "name": "Hyundai Long Biên",
+      "short": "HLBI",
+      "region": "HN",
+      "province": "Hà Nội",
+      "address": "Số 3+5 Nguyễn Văn Linh, phường Việt Hưng, thành phố Hà Nội"
+    },
+    {
+      "code": "VN061",
+      "name": "Hyundai Vĩnh Yên",
+      "short": "HVYE",
+      "region": "Bắc",
+      "province": "Phú Thọ",
+      "address": "Thôn Mậu Thông, phường Khai Quang, TP Vĩnh Yên, Vĩnh Phúc"
+    },
+    {
+      "code": "VN063",
+      "name": "Hyundai Ninh Bình",
+      "short": "HNBI",
+      "region": "Bắc",
+      "province": "Ninh Bình",
+      "address": "Lô C5, KCN Gián Khẩu, Gia Viễn, Ninh Bình"
+    },
+    {
+      "code": "VN069",
+      "name": "Hyundai Quảng Ninh",
+      "short": "HQNI",
+      "region": "Bắc",
+      "province": "Quảng Ninh",
+      "address": "Tổ 3, khu 10B, P.Quang Hanh, TX Cẩm Phả, Quảng Ninh"
+    },
+    {
+      "code": "VN065.1",
+      "name": "Hyundai Thái Nguyên",
+      "short": "HTNG",
+      "region": "Bắc",
+      "province": "Thái Nguyên",
+      "address": "Đường Bắc Sơn, Tổ 23, P. Hoàng Văn Thụ, TP. Thái Nguyên"
+    },
+    {
+      "code": "VN066",
+      "name": "Hyundai Việt Trì",
+      "short": "HVTR",
+      "region": "Bắc",
+      "province": "Phú Thọ",
+      "address": "Đường Hùng Vương, P.Vân Phú, Tp.Việt Trì, Phú Thọ"
+    },
+    {
+      "code": "VN071",
+      "name": "Hyundai Cầu Diễn",
+      "short": "HCDI",
+      "region": "HN",
+      "province": "Hà Nội",
+      "address": "Ô số 02, Lô 1 Cụm công nghiệp Lai Xá, xã Hoài Đức, thành phố Hà Nội."
+    },
+    {
+      "code": "VN089",
+      "name": "Hyundai Hưng Yên",
+      "short": "HHYE",
+      "region": "Bắc",
+      "province": "Hưng Yên",
+      "address": "317 Nguyễn Văn Linh, P.An Tảo, TP Hưng Yên"
+    },
+    {
+      "code": "VN096",
+      "name": "Hyundai Hòa Bình",
+      "short": "HHBI",
+      "region": "Bắc",
+      "province": "Phú Thọ",
+      "address": "Km5, quốc lộ 6, phường Trung Minh, thành phố hoà bình"
+    },
+    {
+      "code": "VN098",
+      "name": "Hyundai Bắc Giang",
+      "short": "HBGI",
+      "region": "Bắc",
+      "province": "Bắc Ninh",
+      "address": "Lô 1, Cụm CN Dĩnh Trì, Xã Dĩnh Trì, TP. Bắc Giang, Tỉnh Bắc Giang"
+    },
+    {
+      "code": "VS008",
+      "name": "Hyundai Tiền Giang",
+      "short": "HTGI",
+      "region": "Nam",
+      "province": "Đồng Tháp",
+      "address": "Số 539/3 Ấp Long Tường, Xã Châu Thành, Tỉnh Đồng Tháp"
+    },
+    {
+      "code": "VS034",
+      "name": "Hyundai Việt Hàn",
+      "short": "HVHA",
+      "region": "HCM",
+      "province": "TP Hồ Chí Minh",
+      "address": "Số 387 Quốc Lộ 13, Phường Hiệp Bình, TP. HCM"
+    },
+    {
+      "code": "VS036",
+      "name": "Hyundai Gia Định",
+      "short": "HGDI",
+      "region": "HCM",
+      "province": "TP Hồ Chí Minh",
+      "address": "Số 94 -96 Phạm Đình Hổ, Phường Bình Tây, TP. HCM"
+    },
+    {
+      "code": "VS039",
+      "name": "Hyundai Ngọc Phát",
+      "short": "HNPH",
+      "region": "Nam",
+      "province": "Đồng Nai",
+      "address": "26/6 Khu phố 1, Ngã tư Bửu Long, Tp.Biên Hòa, Tỉnh Đồng Nai"
+    },
+    {
+      "code": "VS057",
+      "name": "Hyundai Trường Chinh",
+      "short": "HTCH",
+      "region": "HCM",
+      "province": "TP Hồ Chí Minh",
+      "address": "Số 682A Trường Chinh, Phường Tân Bình, TP. HCM"
+    },
+    {
+      "code": "VS058",
+      "name": "Hyundai Bình Dương",
+      "short": "HBDU",
+      "region": "Nam",
+      "province": "TP Hồ Chí Minh",
+      "address": "48A ĐẠI LỘ BÌNH DƯƠNG (ngã 4 Địa Chất), Phường PHÚ HÒA, TP THỦ DẦU MỘT, BÌNH DƯƠNG; 538 Đường Hùng Vương, Phú Mỹ, Thủ Dầu Một, Bình Dương"
+    },
+    {
+      "code": "VS064",
+      "name": "Hyundai Vĩnh Long",
+      "short": "HVLO",
+      "region": "Nam",
+      "province": "Vĩnh Long",
+      "address": "Số 12, Tân Bình, Phường Tân Hạnh, Vĩnh Long"
+    },
+    {
+      "code": "VS065",
+      "name": "Hyundai Bà Rịa Vũng Tàu",
+      "short": "HBVT",
+      "region": "Nam",
+      "province": "TP Hồ Chí Minh",
+      "address": "Số 609-611 quốc lộ 51, Khu phố Hương Sơn, Phường Long Hương, Tp Bà Rịa, Tỉnh Bà Rịa Vũng Tàu"
+    },
+    {
+      "code": "VS066",
+      "name": "Hyundai Đồng Tháp",
+      "short": "HDTH",
+      "region": "Nam",
+      "province": "Đồng Tháp",
+      "address": "1S: Số 89 Nguyễn, Phường Cao Lãnh, Tỉnh Đồng Tháp; 3S: 48A, Quốc lộ 80, Phường Sa Đéc, Đồng Tháp"
+    },
+    {
+      "code": "VS067",
+      "name": "Hyundai An Giang",
+      "short": "HAGI",
+      "region": "Nam",
+      "province": "An Giang",
+      "address": "QL91, Khóm Trung Thạnh, Phường Mỹ Thới, Tỉnh An Giang"
+    },
+    {
+      "code": "VS068.1",
+      "name": "Hyundai Kiên Giang",
+      "short": "HKGI",
+      "region": "Nam",
+      "province": "An Giang",
+      "address": "68 Võ Văn Kiệt, ấp Thạnh Bình, xã Thạnh Lộc, tỉnh An Giang"
+    },
+    {
+      "code": "VS069",
+      "name": "Hyundai Cà Mau",
+      "short": "HCMA",
+      "region": "Nam",
+      "province": "Cà Mau",
+      "address": "Quốc lộ 1A, Đường Nguyễn Tất Thành, Phường Lý Văn Lâm, Cà Mau"
+    },
+    {
+      "code": "VS070",
+      "name": "Hyundai Kinh Dương Vương",
+      "short": "HKDV",
+      "region": "HCM",
+      "province": "TP Hồ Chí Minh",
+      "address": "Số 701 Kinh Dương Vương, Phường An Lạc, TP. HCM"
+    },
+    {
+      "code": "VS071",
+      "name": "Hyundai Bến Tre",
+      "short": "HBTR",
+      "region": "Nam",
+      "province": "Vĩnh Long",
+      "address": "Số 38E, QL60, khu phố Phú Hữu, phường Phú Tân, tỉnh Vĩnh Long"
+    },
+    {
+      "code": "VS080",
+      "name": "Hyundai Bình Thuận",
+      "short": "HBTH",
+      "region": "Nam",
+      "province": "Lâm Đồng",
+      "address": "Lô 4/3, đường số 4, KCN Phan Thiết 1, xã Phong Nẫm, Tp. Phan Thiết, tỉnh Bình Thuận"
+    },
+    {
+      "code": "VS086.1",
+      "name": "Hyundai Tây Đô",
+      "short": "HTDO",
+      "region": "Nam",
+      "province": "TP Cần Thơ",
+      "address": "Số 91, đường Cách Mạng Tháng Tám, Phường Bình Thuỷ, Tp. Cần Thơ"
+    },
+    {
+      "code": "VS089",
+      "name": "Hyundai Ngọc An",
+      "short": "HNAN",
+      "region": "HCM",
+      "province": "TP Hồ Chí Minh",
+      "address": "Số 327, Quốc lộ 13, Phường Hiệp Bình, TP. HCM"
+    },
+    {
+      "code": "VS092",
+      "name": "Hyundai Long An",
+      "short": "HLAN",
+      "region": "Nam",
+      "province": "Tây Ninh",
+      "address": "Số 24 Quốc Lộ 1, Khu Đô Thị Trung Tâm Hành Chính Tỉnh, Phường Long An, Tỉnh Tây Ninh"
+    },
+    {
+      "code": "VS093",
+      "name": "Hyundai Bình Phước",
+      "short": "HBPH",
+      "region": "Nam",
+      "province": "Đồng Nai",
+      "address": "Khu Phố Tân Trà, Phường Tân Xuân, TP Đồng Xoài, Tỉnh Bình Phước."
+    },
+    {
+      "code": "VS094",
+      "name": "Hyundai Bạc Liêu",
+      "short": "HBLI",
+      "region": "Nam",
+      "province": "Cà Mau",
+      "address": "Nguyễn Diễm Tiên - +84 849 295 929; Số 99, Đ. Tránh QL 1A, Phường Bạc Liêu, Tỉnh Cà Mau"
+    },
+    {
+      "code": "VS098",
+      "name": "Hyundai Tây Ninh",
+      "short": "HTNI",
+      "region": "Nam",
+      "province": "Tây Ninh",
+      "address": "Số 21 Đường 30/4, Khu phố 4, phường Tân Ninh, tỉnh Tây Ninh"
+    },
+    {
+      "code": "VN025",
+      "name": "Hyundai Lai Châu",
+      "short": "HLCH",
+      "region": "Bắc",
+      "province": "Lai Châu",
+      "address": "Địa chỉ: 186 đường 19/8, tổ 12, phường Đoàn Kết, TP.Lai Châu."
+    },
+    {
+      "code": "VN038",
+      "name": "Hyundai Điện Biên",
+      "short": "HDBI",
+      "region": "Bắc",
+      "province": "Điện Biên",
+      "address": "Số 22 Đường Trần Đăng Ninh, Phường Điện Biên Phủ (TP Điện Biên Phủ cũ), Tỉnh Điện Biên"
+    }
+  ]
+}

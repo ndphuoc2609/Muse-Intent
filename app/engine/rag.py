@@ -36,10 +36,92 @@ cosine TF-IDF và neural khác nhau).
 from __future__ import annotations
 
 import json
+import unicodedata
 
 from sqlalchemy import select
 
 from ..models import RagChunk, RagIndexMeta
+
+
+def _strip(text: str) -> str:
+    return "".join(
+        c for c in unicodedata.normalize("NFD", text or "")
+        if unicodedata.category(c) != "Mn").lower()
+
+
+# Từ khóa mở cổng truy xuất company (đại lý): chỉ khi khách thể hiện
+# quan tâm mua xe / hỏi đại lý / liên hệ thì mới đưa COMPANY_EVIDENCE
+# vào prompt — lượt thường không cần, tránh model lôi đại lý vào
+# chuyện không liên quan.
+# Cạm bẫy: bỏ dấu làm "mưa" thành "mua" nên KHÔNG được khớp "mua" trên
+# text đã bỏ dấu ("trời mưa" sẽ thành tín hiệu lead giả). "mua" chỉ
+# khớp trên text gốc có dấu; các từ khóa còn lại khớp trên text bỏ dấu
+# để chịu được chat không dấu. "mua" không dấu (user gõ "mua" cho cả
+# mưa lẫn mua) vẫn mơ hồ — chấp nhận được vì hậu quả chỉ là đính kèm
+# evidence, model vẫn chỉ dùng khi liên quan.
+LEAD_KEYWORDS = ("dai ly", "sale", "lay xe", "quan tam",
+                 "bao gia", "tu van", "lien he", "khu vuc", "showroom",
+                 "gan", "o dau", "dat coc", "dang tinh", "dang tim")
+
+
+def has_lead_signal(text: str) -> bool:
+    import re
+    orig = (text or "").lower()
+    if re.search(r"\bmua\b", orig):
+        return True
+    stripped = _strip(text)
+    words = set(re.findall(r"\w+", stripped))
+    if words & {"sale", "showroom", "gan"}:
+        return True
+    return any(k in stripped for k in LEAD_KEYWORDS)
+
+
+def build_company_chunks(dealers: list[dict]) -> list[dict]:
+    """Một đại lý -> một chunk company. Text chỉ gồm tên/mã/khu vực/
+    tỉnh/địa chỉ đã làm sạch (fetch_dealers.py đã lược email + SĐT
+    cá nhân) — KHÔNG bao giờ có thông tin liên hệ cá nhân trong chunk.
+    Id ổn định theo mã đại lý để build lại là idempotent."""
+    chunks = []
+    for d in dealers:
+        code = (d.get("code") or "").strip()
+        if not code:
+            continue
+        parts = [f"Đại lý: {d.get('name', '').strip()} ({code})."]
+        if d.get("region"):
+            parts.append(f"Khu vực: {d['region'].strip()}.")
+        if d.get("province"):
+            parts.append(f"Tỉnh thành: {d['province'].strip()}.")
+        if d.get("address"):
+            parts.append(f"Địa chỉ: {d['address'].strip()}.")
+        chunks.append({
+            "id": f"company_{code}", "persona_id": None,
+            "chunk_type": "dealer", "source_ref": code,
+            "domain": "company", "text": " ".join(parts)})
+    return chunks
+
+
+def retrieve_company_chunks(session, query_vector,
+                            limit: int = 3,
+                            threshold: float = 0.15) -> list[dict]:
+    """Top chunk company (đại lý), không gắn persona nào — mọi persona
+    đều được gợi ý cùng danh sách đại lý. Tách riêng khỏi chunk
+    persona: không bao giờ trộn vào retrieve_chunks của persona."""
+    scored = []
+    for row in session.execute(
+            select(RagChunk).where(
+                RagChunk.domain == "company")).scalars().all():
+        try:
+            vec = json.loads(row.embedding)
+        except (ValueError, TypeError):
+            continue
+        score = cosine(query_vector, vec)
+        if score >= threshold:
+            scored.append({
+                "chunk_id": row.id, "chunk_type": row.chunk_type,
+                "source_ref": row.source_ref, "text": row.text,
+                "score": round(score, 4)})
+    scored.sort(key=lambda d: d["score"], reverse=True)
+    return scored[:limit]
 
 # Ngưỡng đo thực tế trên corpus này (query mẫu, AUTO_029): chunk liên
 # quan đạt 0.118–0.276, nhiễu ≤0.095 — ngưỡng TF-IDF 0.10 tách được hai

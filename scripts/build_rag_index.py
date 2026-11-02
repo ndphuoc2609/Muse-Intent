@@ -1,11 +1,19 @@
-"""Build RAG index cho persona (persona-only, chưa có dữ liệu công ty).
+"""Build RAG index: persona + (tùy chọn) company.
 
 Đọc data/personas.json -> chunk (xem rag.build_chunks) -> embed ->
 ghi rag_chunks + rag_index_meta. Build lại là thay toàn bộ index
 (chunk id ổn định theo nguồn nên idempotent).
 
+--company data/dealers.json: thêm chunk đại lý (domain='company',
+persona_id NULL, xem rag.build_company_chunks) vào CÙNG index để
+TF-IDF fit chung vocab (tên đại lý, tỉnh thành đều có trong vocab).
+Company chunk tách riêng khỏi corpus persona ở tầng retrieval
+(retrieve_company_chunks lọc domain, retrieve_chunks lọc persona_id)
+— không bao giờ trộn hai miền.
+
 Dùng: .venv/bin/python scripts/build_rag_index.py [--provider tfidf|st]
        [--threshold 0.15] [--db sqlite:///./persona_dialogue.db]
+       [--company data/dealers.json]
 
 --provider tfidf (mặc định): local, không mạng, không phí.
 --provider st: neural local, cần cài requirements-rag.txt trước; nếu
@@ -42,6 +50,7 @@ def main() -> int:
                     default="tfidf")
     ap.add_argument("--threshold", type=float, default=None)
     ap.add_argument("--data", default=None)
+    ap.add_argument("--company", default=None)
     ap.add_argument("--db", default="sqlite:///./persona_dialogue.db")
     args = ap.parse_args()
 
@@ -61,6 +70,17 @@ def main() -> int:
     all_chunks: list[dict] = []
     for rec in records:
         all_chunks.extend(build_chunks(rec))
+    company_source = None
+    if args.company:
+        from app.engine.rag import build_company_chunks
+        company_path = Path(args.company)
+        company_payload = json.loads(
+            company_path.read_text(encoding="utf-8"))
+        dealers = company_payload["dealers"] \
+            if isinstance(company_payload, dict) else company_payload
+        company_chunks = build_company_chunks(dealers)
+        all_chunks.extend(company_chunks)
+        company_source = str(company_path)
     texts = [c["text"] for c in all_chunks]
 
     if args.provider == "tfidf":
@@ -91,8 +111,11 @@ def main() -> int:
     meta.update({
         "threshold": threshold,
         "chunk_count": len(all_chunks),
+        "company_chunk_count": sum(
+            1 for c in all_chunks if c.get("domain") == "company"),
         "built_at": datetime.now(timezone.utc).isoformat(),
         "source": str(data_path),
+        "company_source": company_source,
     })
 
     session.query(RagChunk).delete()
@@ -100,6 +123,7 @@ def main() -> int:
     for chunk, vec in zip(all_chunks, vectors):
         session.add(RagChunk(id=chunk["id"],
                              persona_id=chunk["persona_id"],
+                             domain=chunk.get("domain", "persona"),
                              chunk_type=chunk["chunk_type"],
                              source_ref=chunk["source_ref"],
                              text=chunk["text"],
@@ -113,7 +137,9 @@ def main() -> int:
     print(f"provider={meta['provider']} dims={meta['dims']} "
           f"threshold={threshold}")
     print(f"chunks={len(all_chunks)} by_type={dict(by_type)} "
-          f"personas={len(records)} time_s={time.time() - t0:.1f}")
+          f"personas={len(records)} "
+          f"company={meta['company_chunk_count']} "
+          f"time_s={time.time() - t0:.1f}")
     return 0
 
 

@@ -230,9 +230,10 @@ TOOLS = [
             "description": "Trả lời cuối cùng. Mọi claim có dữ kiện phải kèm ref_id "
             "đã được tool trả về trong lượt này, hoặc từ RAG_EVIDENCE "
             "trong system message (khi đó kind là rag, ref_id là chunk "
-            "id). Claim value phải là giá trị chuẩn ngắn gọn copy từ "
-            "tool result (VD 'Hyundai Creta', 'Trắng'), không viết "
-            "thành câu.",
+            "id), hoặc từ COMPANY_EVIDENCE (khi đó kind là company, "
+            "ref_id là chunk id đại lý). Claim value phải là giá trị "
+            "chuẩn ngắn gọn copy từ tool result (VD 'Hyundai Creta', "
+            "'Trắng'), không viết thành câu.",
             "parameters": {
                 "type": "object",
                 "properties": {
