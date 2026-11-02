@@ -11,9 +11,17 @@ Mapping — chỉ map những gì nguồn có, KHÔNG bịa field nguồn không
 - Persona: id=code (AUTO_xxx, unique), display_name=name,
   style=tone, stance=peer_user (mọi persona đều là user bình thường,
   không role), age=None, region="" (nguồn không có tuổi/vùng).
-  is_fictional=True + identity_note hư cấu: GIẢ ĐỊNH từ mã AUTO_ và
-  tên stylized (vd "Khang Vibe"); Phước chưa xác nhận fictional —
-  nếu dữ liệu là người thật thì phải sửa chỗ này trước khi dùng rộng.
+  is_fictional=False + identity_note người thật: QUYẾT ĐỊNH của Phước
+  2026-11-02, ghi đè giả định hư cấu ban đầu (suy từ mã AUTO_ và tên
+  stylized). Lưu ý phân biệt: text profile/memory mang dấu vết sinh
+  theo mẫu (chỉ 7 topic opinion, 7 bộ painpoint/lifestyle cho 200
+  người, 808 post cùng ngày 26/10/2026) — điều đó chứng minh TEXT
+  được sinh theo mẫu, không chứng minh người là giả; theo chủ nguồn
+  thì đây là người thật (user thật với profile do hệ thống sinh).
+  Nếu nguồn thực ra là synthetic thì đổi lại is_fictional=True +
+  note hư cấu. Hệ quả: khi bị hỏi có phải AI không, model phải nói
+  là AI đang mô phỏng trong sandbox (xem SYSTEM_PROMPT rule 6),
+  không được nói "persona hư cấu" với nhóm này.
 - PersonaProfile: occupation, family_structure=lifestyle.family_status,
   daily_rhythm=lifestyle.daily_commute,
   ownership_status="đang sở hữu" (suy ra từ chính tên field car_owned).
@@ -63,7 +71,9 @@ from .models import (
 
 _DATA_PATH = Path(__file__).resolve().parents[1] / "data" / "personas.json"
 _AVOID = ["rao bán", "hứa hẹn giao dịch", "xin số điện thoại"]
-_FICTIONAL_NOTE = "PERSONA HƯ CẤU cho sandbox, không phải người thật."
+_REAL_NOTE = ("Persona dựa trên người dùng thật (Phước xác nhận "
+              "2026-11-02). Đây là mô phỏng trong sandbox — người đang "
+              "chat là AI, không phải chính người đó.")
 
 
 def _load_source() -> list[dict]:
@@ -115,13 +125,13 @@ def _ensure_persona(session, p: dict) -> None:
         session.add(Persona(
             id=code, display_name=p["name"], age=None, region="",
             stance="peer_user", style=p.get("tone") or "",
-            identity_note=_FICTIONAL_NOTE, is_fictional=True))
+            identity_note=_REAL_NOTE, is_fictional=False))
     else:
         persona.display_name = p["name"]
         persona.style = p.get("tone") or ""
         persona.stance = "peer_user"
-        persona.identity_note = _FICTIONAL_NOTE
-        persona.is_fictional = True
+        persona.identity_note = _REAL_NOTE
+        persona.is_fictional = False
     profile = session.get(PersonaProfile, code)
     if profile is None:
         session.add(PersonaProfile(

@@ -135,5 +135,7 @@ Câu: “Trời mưa to đường ngập thì bác xử lý sao?” (persona AUT
 - Product facts KHÔNG nằm trong RAG: vẫn tra cứu exact-match như cũ
   (giá thì không được “gần đúng”).
 - Persona data cho RAG vẫn là 200 persona import (xem seed-200-personas);
-  nhãn hư cấu/thật của 200 persona này vẫn đang chờ Phước chốt (bằng
-  chứng hiện tại: dữ liệu tự sinh — xem báo cáo).
+  nhãn là NGƯỜI THẬT theo quyết định của Phước 2026-11-02 (ghi đè giả
+  định hư cấu ban đầu). Dấu vết template trong text (7 topic, 7 bộ
+  lifestyle, post cùng ngày) chứng minh text sinh theo mẫu, không
+  chứng minh người là giả — xem seed.py.
