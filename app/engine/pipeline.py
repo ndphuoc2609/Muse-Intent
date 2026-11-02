@@ -747,18 +747,32 @@ class Pipeline:
                 row = self.s.get(PersonaStory, st["event_id"])
                 if row and not row.told_in_message_id:
                     row.told_in_message_id = msg.id
+            # Model có thể claim cùng một story hai lần trong một final
+            # (live Luna 2026-11-02 claim AUTO_029_mem_3 hai lần) — unique
+            # (event, actor, message) sẽ làm hỏng cả commit nếu insert
+            # trùng. Dedupe trong lượt + kiểm tra hàng đã có trước khi
+            # insert. Lưu ý: try/except quanh add() KHÔNG bắt được lỗi
+            # này vì add() chưa chạm DB, lỗi chỉ nổ ở flush/commit — nên
+            # không dùng rollback ở đây nữa.
+            seen_story_refs = set()
             for claim in final.get("claims", []) or []:
                 if claim.get("kind") == "story" and claim.get("ref_id"):
+                    if claim["ref_id"] in seen_story_refs:
+                        continue
+                    seen_story_refs.add(claim["ref_id"])
                     st = self.s.get(PersonaStory, claim["ref_id"])
                     if st is not None:
-                        try:
+                        exists = self.s.execute(
+                            select(StoryTold).where(
+                                StoryTold.event_id == st.event_id,
+                                StoryTold.actor_id == req.actor_id,
+                                StoryTold.message_id == msg.id)).scalars().first()
+                        if not exists:
                             self.s.add(StoryTold(
                                 event_id=st.event_id,
                                 persona_id=req.persona_id,
                                 actor_id=req.actor_id,
                                 thread_id=thread.id, message_id=msg.id))
-                        except IntegrityError:
-                            self.s.rollback()
             # Followup chỉ được tạo khi delivery thành công.
             if final.get("followup_question") and final.get("followup_key") \
                     and not opted_out and goal != "handoff":
