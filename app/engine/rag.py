@@ -59,9 +59,14 @@ def _strip(text: str) -> str:
 # để chịu được chat không dấu. "mua" không dấu (user gõ "mua" cho cả
 # mưa lẫn mua) vẫn mơ hồ — chấp nhận được vì hậu quả chỉ là đính kèm
 # evidence, model vẫn chỉ dùng khi liên quan.
+# "nghien cuu" = đang nghiên cứu một mẫu xe cụ thể: tín hiệu lead ở
+# giai đoạn tìm hiểu (theo kịch bản Phước 2026-11-02: khai thác 1-2 câu
+# rồi giới thiệu sale + xin SĐT). "tim hieu"/"tham khao" KHÔNG thêm —
+# quá chung, dễ bật lead cho khách chỉ xem chơi.
 LEAD_KEYWORDS = ("dai ly", "sale", "lay xe", "quan tam",
                  "bao gia", "tu van", "lien he", "khu vuc", "showroom",
-                 "gan", "o dau", "dat coc", "dang tinh", "dang tim")
+                 "gan", "o dau", "dat coc", "dang tinh", "dang tim",
+                 "nghien cuu")
 
 
 def has_lead_signal(text: str) -> bool:

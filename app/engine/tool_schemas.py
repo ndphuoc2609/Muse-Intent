@@ -15,7 +15,9 @@ TOOLS = [
             "hỏi cụ thể, followup PHẢI là câu hỏi cụ thể theo nhu cầu đó, "
             "không dùng câu chung chung ('còn muốn hỏi thêm gì không?'); "
             "một câu 'không' cho câu hỏi chung không được chọn goal stop "
-            "khi need còn chưa khai thác.",
+            "khi need còn chưa khai thác. TRẦN: khai thác tối đa 1-2 câu, "
+            "sau đó chuyển sang giới thiệu sale + xin SĐT (LEAD_CAPTURE); "
+            "khách từ chối SĐT thì mời nhắn riêng, không hỏi lại.",
             "parameters": {
                 "type": "object",
                 "properties": {

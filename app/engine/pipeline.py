@@ -760,7 +760,11 @@ class Pipeline:
                 "lead_capture": _lead_capture,
                 "planner_intents": [i.type for i in planner.intents],
                 "user_text": req.text,
-                "prev_persona_text": prev_persona_text})
+                "prev_persona_text": prev_persona_text,
+                # Tổng câu hỏi đã hỏi tới lúc này = đã trả lời + đang
+                # chờ (câu đang được trả lời ở lượt này vẫn pending vì
+                # _update_questions chạy sau vòng repair).
+                "asked_count": len(answered_qs) + len(pending_qs)})
             if not validator_errors:
                 break
             if _repair == SETTINGS.max_validator_repairs:

@@ -252,22 +252,38 @@ def validate(final: dict, ctx: dict) -> list[str]:
         followup_q = final.get("followup_question") or ""
         if _is_generic_question(followup_q) or (
                 _is_generic_question(text) and text.count("?") == 1):
-            errors.append(
-                "generic_followup_on_stated_need: khách vừa nêu nhu cầu cụ "
-                "thể nhưng câu hỏi duy nhất lại chung chung — hỏi một câu "
-                "CỤ THỂ theo nhu cầu đó (quãng đường mỗi ngày, xe đang đi, "
-                "mức tiêu hao hiện tại, thời gian dự định mua...) thay vì "
-                "câu chung chung")
+            # Trần khai thác 1-2 câu: hỏi đủ rồi thì lỗi không còn là
+            # "hỏi cụ thể hơn" mà là "chuyển sang sale + SĐT".
+            if (ctx.get("asked_count") or 0) >= 2:
+                errors.append(
+                    "exploration_cap: đã hỏi đủ 1-2 câu về need, KHÔNG hỏi "
+                    "thêm câu khai thác nữa — chuyển sang giới thiệu sale "
+                    "bên Hyundai + xin SĐT theo LEAD_CAPTURE")
+            else:
+                errors.append(
+                    "generic_followup_on_stated_need: khách vừa nêu nhu cầu "
+                    "cụ thể nhưng câu hỏi duy nhất lại chung chung — hỏi "
+                    "một câu CỤ THỂ theo nhu cầu đó (quãng đường mỗi ngày, "
+                    "xe đang đi, mức tiêu hao hiện tại, thời gian dự định "
+                    "mua...) thay vì câu chung chung")
     # 2d. Chốt hội thoại chỉ vì khách nói "không" với câu hỏi chung.
     # "Không" đó từ chối câu hỏi chung, không phải từ chối trò chuyện;
     # khi need còn chưa khai thác thì phải chuyển sang câu cụ thể.
+    # Đã hỏi đủ 1-2 câu rồi thì chuyển sang sale + SĐT, không hỏi thêm.
     if goal == "stop" and _is_bare_negation(ctx.get("user_text", "")) \
             and _is_generic_question(ctx.get("prev_persona_text", "")):
-        errors.append(
-            "stop_on_generic_refusal: khách chỉ nói 'không' với câu hỏi "
-            "chung chung của lượt trước, chưa phải muốn dừng — KHÔNG chốt "
-            "hội thoại, hãy hỏi một câu CỤ THỂ về nhu cầu khách đã nêu "
-            "thay vì dừng ở đây")
+        if (ctx.get("asked_count") or 0) >= 2:
+            errors.append(
+                "stop_on_generic_refusal: khách chỉ nói 'không' với câu hỏi "
+                "chung chung của lượt trước, chưa phải muốn dừng — KHÔNG "
+                "chốt hội thoại; đã hỏi đủ 1-2 câu nên chuyển sang giới "
+                "thiệu sale bên Hyundai + xin SĐT theo LEAD_CAPTURE")
+        else:
+            errors.append(
+                "stop_on_generic_refusal: khách chỉ nói 'không' với câu hỏi "
+                "chung chung của lượt trước, chưa phải muốn dừng — KHÔNG "
+                "chốt hội thoại, hãy hỏi một câu CỤ THỂ về nhu cầu khách "
+                "đã nêu thay vì dừng ở đây")
     # 3. Opt-out: không hỏi thêm, không gợi mở.
     if ctx.get("opted_out"):
         if final.get("followup_question"):
