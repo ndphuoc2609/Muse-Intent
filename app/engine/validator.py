@@ -209,7 +209,7 @@ def validate(final: dict, ctx: dict) -> list[str]:
     for claim in claims:
         kind, ref_id, value = claim.get("kind"), claim.get("ref_id"), \
             claim.get("value", "")
-        if kind in ("persona", "story", "product"):
+        if kind in ("persona", "story", "product", "rag"):
             if not ref_id or ref_id not in retrieved:
                 errors.append(
                     f"unsourced_claim: claim {kind} '{value}' không có "
@@ -242,6 +242,10 @@ def validate(final: dict, ctx: dict) -> list[str]:
                 if not _story_matches(value, rvalue):
                     errors.append(f"story_unsaved_detail: claim story '{value}' "
                                   "không khớp canonical view đã lưu")
+            elif kind == "rag":
+                if not _story_matches(value, rvalue):
+                    errors.append(f"rag_unsaved_detail: claim rag '{value}' "
+                                  "không khớp chunk đã lưu")
     # 7. Khẳng định có dữ kiện trong văn bản phải được claim bao phủ.
     errors.extend(_uncovered_errors(text, claims, retrieved))
     return errors

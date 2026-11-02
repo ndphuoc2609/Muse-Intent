@@ -75,19 +75,68 @@ def test_guard_noop_without_persona_vehicle_or_resolution():
         "Nhà mình từng lái Tucson.")["resolved_reference"]["resolved_to"] == "Hyundai Creta"
 
 
-_MEM2 = ("Quan điểm về 'Trời mưa to, đường ngập lụt cục bộ: Rủi ro chết "
-         "máy, ngập nước và kinh nghiệm di chuyển an toàn': Từ những "
-         "chuyến đi cùng gia đình trên chiếc Hyundai Tucson, tôi thấy "
-         "an toàn khi gặp đường ngập bắt đầu từ việc biết dừng đúng "
-         "lúc, không phải cố chứng minh xe mình đi được.")
+def test_guard_suffix_is_part_of_car_name():
+    # Hậu tố là 1 phần của tên xe: Tucson Turbo vẫn là họ Tucson, nên
+    # resolve thành Creta sau khi persona nhắc Tucson Turbo phải downgrade,
+    # và ambiguous_models giữ tên đầy đủ kèm hậu tố.
+    out = guard_resolved_reference(
+        _planner("Hyundai Creta"), "Hyundai Tucson Turbo",
+        "Tôi cũng tính lấy 1 chiếc",
+        "Nhà mình từng lái Tucson Turbo đi xa cuối tuần.")
+    ref = out["resolved_reference"]
+    assert ref["resolved_to"] is None
+    assert "Hyundai Tucson Turbo" in ref["ambiguous_models"]
+    assert "Hyundai Creta" in ref["ambiguous_models"]
+
+
+def test_guard_suffix_only_mention_counts():
+    # Lượt persona chỉ nhắc hậu tố 'Turbo' vẫn tính là nhắc xe của mình.
+    out = guard_resolved_reference(
+        _planner("Hyundai Creta"), "Hyundai Tucson Turbo",
+        "Tôi cũng tính lấy 1 chiếc", "Bản Turbo đi êm lắm.")
+    assert out["resolved_reference"]["resolved_to"] is None
+
+
+def test_guard_same_family_with_suffix_keeps():
+    # Resolve đúng họ xe (Tucson) dù persona đi bản Turbo -> giữ nguyên.
+    out = guard_resolved_reference(
+        _planner("Hyundai Tucson"), "Hyundai Tucson Turbo",
+        "Tôi cũng tính lấy 1 chiếc",
+        "Nhà mình từng lái Tucson Turbo đi xa.")
+    assert out["resolved_reference"]["resolved_to"] == "Hyundai Tucson"
+
+
+def test_guard_different_variants_are_different_cars():
+    # VF3 vàng nóc trắng vs VF8: chỉ chung hãng -> khác xe -> downgrade.
+    out = guard_resolved_reference(
+        _planner("VinFast VF8"), "VinFast VF3 vàng nóc trắng",
+        "Tôi cũng tính lấy 1 chiếc",
+        "Nhà mình đi VF3 vàng nóc trắng đi phố.")
+    assert out["resolved_reference"]["resolved_to"] is None
+
+
+def test_guard_user_naming_suffix_keeps():
+    # Khách tự nêu hậu tố ('1 chiếc Turbo') thì không downgrade.
+    out = guard_resolved_reference(
+        _planner("Hyundai Tucson Turbo"), "Hyundai Creta",
+        "Tôi cũng tính lấy 1 chiếc Turbo",
+        "Nhà mình từng lái Creta đi phố.")
+    assert out["resolved_reference"]["resolved_to"] == "Hyundai Tucson Turbo"
+
+
+_MEM3 = ("Quan điểm về 'Trời mưa to, đường ngập lụt cục bộ: Rủi ro chết "
+         "máy, ngập nước và kinh nghiệm di chuyển an toàn': Với tôi, "
+         "chiếc Tucson chở cả gia đình nên gặp đường ngập thì ưu tiên "
+         "tìm đường khác hoặc dừng ở nơi an toàn, không đánh cược chỉ "
+         "để tiết kiệm vài phút.")
 
 
 class _StoryProvider:
-    """Lượt 1: kể memory story của AUTO_089 (Hyundai Tucson) — tương đương
-    story Vũng Tàu của Minh Anh trong seed cũ: persona vừa nhắc xe
-    Tucson thì lượt sau khách nói mơ hồ "1 chiếc" không được gán Creta.
-    Dùng đúng xe 'Hyundai Tucson' (không kèm hậu tố trim) vì guard lấy
-    token phân biệt là từ cuối của tên xe."""
+    """Lượt 1: kể memory story của AUTO_013 (Hyundai Tucson Turbo) —
+    tương đương story Vũng Tàu của Minh Anh trong seed cũ: persona vừa
+    nhắc xe Tucson thì lượt sau khách nói mơ hồ "1 chiếc" không được
+    gán Creta. Dùng đúng xe có hậu tố để khóa fix guard suffix (trước
+    fix này, token từ cuối 'turbo' làm guard không kích hoạt)."""
 
     def _called(self, messages):
         called = set()
@@ -117,9 +166,9 @@ class _StoryProvider:
         if "get_persona_stories" not in called:
             return ProviderResult(tool_calls=[ToolCall("get_persona_stories", {})])
         return ProviderResult(tool_calls=[ToolCall("submit_final_reply", {
-            "text": _MEM2,
-            "claims": [{"kind": "story", "ref_id": "AUTO_089_mem_2",
-                        "value": _MEM2}],
+            "text": _MEM3,
+            "claims": [{"kind": "story", "ref_id": "AUTO_013_mem_3",
+                        "value": _MEM3}],
             "goal": "share_experience"})])
 
 
@@ -173,17 +222,17 @@ class _VagueBuyProvider:
 
 
 def test_two_turn_tucson_story_then_vague_buy_no_creta_assertion(session):
-    # Setup đúng như live: persona Tucson (AUTO_089), bài viết về Creta.
+    # Setup đúng như live: persona Tucson Turbo (AUTO_013), bài Creta.
     pipe1 = Pipeline(session, _StoryProvider(), FakeSender())
     r1 = pipe1.run(TurnRequest(
-        persona_id="AUTO_089", post_text="Bài về Creta.",
+        persona_id="AUTO_013", post_text="Bài về Creta.",
         post_vehicle_models=["Hyundai Creta"],
         actor_id="actor-1", text="Đi những đâu rồi"))
     assert r1.status == "sent"
     assert "Tucson" in (r1.reply_text or "")
     pipe2 = Pipeline(session, _VagueBuyProvider(), FakeSender())
     r2 = pipe2.run(TurnRequest(
-        persona_id="AUTO_089", post_text="Bài về Creta.",
+        persona_id="AUTO_013", post_text="Bài về Creta.",
         post_vehicle_models=["Hyundai Creta"],
         actor_id="actor-1", text="Tôi cũng tính lấy 1 chiếc",
         thread_id=r1.thread_id))

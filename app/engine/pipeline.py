@@ -358,6 +358,8 @@ class Pipeline:
         messages.append({"role": "user", "content": req.text})
         tool_calls_log: list[dict] = []
         trace_retrieval: list[dict] = []
+        trace_rag_evidence: list[dict] = []
+        trace_rag_error: str | None = None
         planner: Planner | None = None
         final: dict | None = None
         stop_reason: str | None = None
@@ -505,6 +507,57 @@ class Pipeline:
                                 trace_retrieval = _ev
                         except Exception:
                             pass
+                        # RAG persona-only: sau story retrieval, truy xuất
+                        # chunk vector của ĐÚNG persona này theo câu khách
+                        # vừa nói. Lỗi RAG không chặn lượt (retrieval chỉ
+                        # gợi ý dữ kiện, validator vẫn là cửa cuối), nhưng
+                        # ghi vào trace để thấy, không nuốt lặng.
+                        try:
+                            from .embeddings import build_embedder_from_meta
+                            from .rag import (DEFAULT_THRESHOLDS,
+                                              load_index_meta,
+                                              retrieve_chunks)
+                            _meta = load_index_meta(self.s)
+                            _emb = build_embedder_from_meta(_meta)
+                            if _emb is not None:
+                                _qv = _emb.embed([req.text])[0]
+                                _threshold = float(_meta.get(
+                                    "threshold", DEFAULT_THRESHOLDS.get(
+                                        str(_meta.get("provider")), 0.2)))
+                                _rag = retrieve_chunks(
+                                    self.s, req.persona_id, _qv,
+                                    limit=3, threshold=_threshold)
+                                # Dedupe với story path: cùng một memory
+                                # đã có trong RELEVANT_MEMORIES thì không
+                                # đưa lại qua RAG (hai id khác nhau cho
+                                # cùng một text làm model lẫn kind với
+                                # ref_id — live test Luna 2026-11-02:
+                                # claim kind rag nhưng ref_id story).
+                                # RAG chỉ bổ sung chunk story path chưa
+                                # lấy được + perspective/profile/post.
+                                _story_ids = {
+                                    d.get("event_id")
+                                    for d in trace_retrieval}
+                                _rag = [d for d in _rag
+                                        if d["source_ref"]
+                                        not in _story_ids]
+                                if _rag:
+                                    for _d in _rag:
+                                        executor.retrieved[_d["chunk_id"]] = (
+                                            "rag", _d["text"],
+                                            {"status": "active"})
+                                    messages[0]["content"] += (
+                                        "\n\nRAG_EVIDENCE (server retrieval, "
+                                        "chỉ dùng khi liên quan; muốn dùng dữ "
+                                        "kiện nào thì claim kind rag với "
+                                        "ref_id trong ngoặc, copy ref_id "
+                                        "nguyên văn không sửa):\n" + "\n".join(
+                                            f"- [{_d['chunk_id']}] {_d['text']} "
+                                            f"(score={_d['score']})"
+                                            for _d in _rag))
+                                    trace_rag_evidence = _rag
+                        except Exception as _rag_exc:
+                            trace_rag_error = str(_rag_exc)
                     continue
                 err = _validate_tool_args(tc.name, tc.arguments)
                 if err:
@@ -554,6 +607,8 @@ class Pipeline:
             "latency_s": round(time.time() - started, 3),
             "provider": type(self.provider).__name__,
             "retrieval_evidence": trace_retrieval,
+            "rag_evidence": trace_rag_evidence,
+            "rag_error": trace_rag_error,
         }
         if final is None:
             msg = Message(thread_id=thread.id, role="persona", text="",

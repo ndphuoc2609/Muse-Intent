@@ -430,6 +430,30 @@ class RetrievalLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
+class RagChunk(Base):
+    """Một chunk vector của RAG persona-only. Embedding lưu dạng JSON:
+    dict thưa (TF-IDF) hoặc list dense (neural). Build lại index là
+    thay toàn bộ bảng (id chunk ổn định theo nguồn, xem rag.py)."""
+    __tablename__ = "rag_chunks"
+    id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    persona_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("personas.id"))
+    chunk_type: Mapped[str] = mapped_column(String(32))
+    source_ref: Mapped[str] = mapped_column(String(160))
+    text: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[str] = mapped_column(Text)  # JSON vector
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class RagIndexMeta(Base):
+    """Meta của lần build index gần nhất: provider, model, threshold,
+    số chunk, state của embedder (vd idf của TF-IDF để query không cần
+    fit lại). Query vector và chunk vector phải cùng provider."""
+    __tablename__ = "rag_index_meta"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+
+
 class Delivery(Base):
     __tablename__ = "deliveries"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)

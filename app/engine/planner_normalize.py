@@ -145,10 +145,41 @@ def _strip_diacritics(text: str) -> str:
         if unicodedata.category(c) != "Mn").lower()
 
 
-def _model_token(model_value: str) -> str:
-    """Token phân biệt của tên xe: từ cuối, VD 'Hyundai Tucson' -> 'tucson'."""
-    parts = _strip_diacritics(model_value).replace("-", " ").split()
-    return parts[-1] if parts else ""
+def _car_tokens(value: str) -> list[str]:
+    """Token tên xe đã chuẩn hoá, giữ thứ tự (token đầu = hãng)."""
+    return _strip_diacritics(value or "").replace("-", " ").split()
+
+
+def _distinctive_tokens(car: str) -> list[str]:
+    """Token phân biệt của tên xe: mọi token ngoài hãng. Xe chỉ có một
+    token thì chính token đó là phân biệt."""
+    toks = _car_tokens(car)
+    return toks[1:] if len(toks) > 1 else toks
+
+
+def _same_car(a: str, b: str) -> bool:
+    """Hai tên xe có phải cùng xe/họ xe không. Hậu tố là 1 PHẦN của tên
+    xe, không tách trim/màu ra: 'Hyundai Tucson Turbo' vẫn là họ Tucson,
+    'VinFast VF3 vàng nóc trắng' vẫn là VF3. Quy tắc:
+    - một bên là tập con của bên kia -> cùng xe ('Creta' vs
+      'Hyundai Creta', 'Tucson' vs 'Hyundai Tucson Turbo').
+    - còn lại: chung token ngoài hãng -> cùng họ.
+    - chỉ chung hãng -> khác xe ('Hyundai Creta' vs 'Hyundai Tucson')."""
+    ta, tb = _car_tokens(a), _car_tokens(b)
+    if not ta or not tb:
+        return False
+    sa, sb = set(ta), set(tb)
+    if sa <= sb or sb <= sa:
+        return True
+    shared = sa & sb
+    return bool(shared - {ta[0], tb[0]})
+
+
+def _mentions_car(text: str, car: str) -> bool:
+    """Text có nhắc xe không: xuất hiện token phân biệt nào của tên xe.
+    Hậu tố cũng tính (nhắc 'Turbo' vẫn là nhắc chiếc Tucson Turbo)."""
+    hay = _strip_diacritics(text or "")
+    return any(t in hay for t in _distinctive_tokens(car))
 
 
 def guard_resolved_reference(planner: dict, persona_vehicle: str | None,
@@ -159,30 +190,29 @@ def guard_resolved_reference(planner: dict, persona_vehicle: str | None,
     planner resolve thành Creta theo xe trong bài viết).
 
     Chỉ downgrade khi ĐỦ cả 3 điều kiện, để không phá các trường hợp đúng:
-    1. resolved_to khác xe của persona (so theo token phân biệt).
-    2. Lượt khách hiện tại KHÔNG nêu tên xe đó (không có token trong text).
+    1. resolved_to khác xe của persona (so theo họ xe, hậu tố tính là
+       1 phần của tên xe — xem _same_car).
+    2. Lượt khách hiện tại KHÔNG nêu tên xe đó (không có token phân
+       biệt trong text, hậu tố cũng tính).
     3. Lượt persona gần nhất CÓ nhắc xe của persona (khách đang đáp lại
        câu chuyện của persona, nên neo gần nhất mạnh hơn neo bài viết).
     Khi downgrade: resolved_to=None, confidence <= 0.4, ambiguous_models
-    gồm cả hai xe, kèm guard note để model thấy lý do và phải hỏi làm rõ
-    hoặc nói chung, không được khẳng định tên xe nào. KHÔNG tự viết lại
-    thành xe persona, vì '1 chiếc' vẫn có thể là xe trong bài — trạng thái
-    trung thực là ambiguous, không phải một khẳng định khác.
+    gồm cả hai xe (tên đầy đủ, kèm hậu tố), kèm guard note để model thấy
+    lý do và phải hỏi làm rõ hoặc nói chung, không được khẳng định tên
+    xe nào. KHÔNG tự viết lại thành xe persona, vì '1 chiếc' vẫn có thể
+    là xe trong bài — trạng thái trung thực là ambiguous, không phải một
+    khẳng định khác.
     """
     resolved = dict(planner.get("resolved_reference") or {})
     resolved_to = resolved.get("resolved_to")
     if not resolved_to or not persona_vehicle:
         return planner
-    persona_token = _model_token(persona_vehicle)
-    resolved_token = _model_token(str(resolved_to))
-    if not persona_token or not resolved_token:
+    if _same_car(str(resolved_to), persona_vehicle):
         return planner
-    if resolved_token == persona_token:
+    if _mentions_car(user_text or "", str(resolved_to)):
         return planner
-    if resolved_token in _strip_diacritics(user_text or ""):
-        return planner
-    if not last_persona_text or persona_token not in _strip_diacritics(
-            last_persona_text):
+    if not last_persona_text or not _mentions_car(
+            last_persona_text, persona_vehicle):
         return planner
     out = dict(planner)
     out["resolved_reference"] = {

@@ -1,0 +1,4 @@
+# Tùy chọn, chỉ cho RAG neural local (scripts/build_rag_index.py --provider st).
+# Nặng (torch) nên KHÔNG nằm trong requirements.txt chính; RAG mặc định
+# dùng TF-IDF local, không cần file này.
+sentence-transformers>=3.0

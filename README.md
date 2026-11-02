@@ -359,3 +359,18 @@ Persona có chiều sâu, nhất quán, khơi gợi nhu cầu tự nhiên — kh
   cho mọi story hư cấu trước khi persona đó được dùng ngoài sandbox.
 - Test synthetic + unit pass **không phải** bằng chứng hệ thống tự nhiên
   với khách thật.
+
+## RAG persona-only (từ 2026-11-02, nhánh rag-persona-only)
+
+- Chunk 200 persona thành 2059 vector (memory 851, perspective 200,
+  profile 200, post 808); role/traits/hashtag/category KHÔNG chunk
+  (no-role). Chi tiết đầy đủ: `docs/rag-persona.md`.
+- Provider mặc định TF-IDF local (0 phí, build 0.7s); neural local
+  (sentence-transformers) là tùy chọn qua `requirements-rag.txt`.
+  OpenRouter embeddings hiện bị workspace guardrail chặn (HTTP 404).
+- Build: `.venv/bin/python scripts/build_rag_index.py [--provider
+  tfidf|st]` (script seed trước, thay toàn bộ index). Pipeline tự
+  truy xuất top-3 chunk của đúng persona, dedupe với story path, đưa
+  vào RAG_EVIDENCE, claim kind rag, validator kiểm tra như story.
+- Kiểm chứng live Luna: câu đường ngập -> sent, claim rag đúng ref_id,
+  validator 0 lỗi, cost $0.000846.

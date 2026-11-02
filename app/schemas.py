@@ -54,8 +54,8 @@ class Planner(BaseModel):
 
 
 class Claim(BaseModel):
-    kind: Literal["persona", "story", "product", "customer_echo"]
-    ref_id: str | None = None  # fact_id / event_id / product_fact_id
+    kind: Literal["persona", "story", "product", "customer_echo", "rag"]
+    ref_id: str | None = None  # fact_id / event_id / product_fact_id / rag chunk id
     value: str
 
 
