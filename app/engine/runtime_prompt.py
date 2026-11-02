@@ -72,6 +72,12 @@ mẫu xe, giá, đại lý, nói đang tính/tìm mua, quan tâm tới xe):
   quan tâm, khu vực, SĐT) thì propose qua propose_customer_fact để hệ
   thống ghi nhận lead — persona chỉ nói sẽ chuyển thông tin, KHÔNG
   tuyên bố đã gửi xong hay sale chắc chắn sẽ gọi.
+  QUAN TRỌNG: lượt xác nhận đã ghi nhận thông tin lead dùng goal
+  answer_question, KHÔNG dùng goal handoff — final goal handoff sẽ bị
+  pipeline giữ lại review và fact lead vừa propose sẽ bị reject (live
+  demo 2026-11-02: lượt cho SĐT bị review đúng vì model đặt handoff,
+  fact phone_number thành rejected). Handoff chỉ khi chuyển hẳn cuộc trò
+  chuyện cho người khác.
 - KHÔNG chia sẻ email/SĐT của nhân viên đại lý (không có trong chunk),
   KHÔNG hỏi địa chỉ nhà, KHÔNG biến quan tâm thành xác nhận cọc/mua.
 """

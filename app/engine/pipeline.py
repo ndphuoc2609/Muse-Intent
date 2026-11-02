@@ -608,14 +608,19 @@ class Pipeline:
                                         from .rag import (
                                             match_company_by_province)
                                         from ..models import CustomerFact
+                                        # Khớp theo relation='location'
+                                        # chứ không theo tên predicate
+                                        # (predicate do model tự chọn:
+                                        # customer_location hay
+                                        # current_location đều gặp).
                                         _loc = self.s.execute(
                                             select(CustomerFact).where(
                                                 CustomerFact.thread_id
                                                 == thread.id,
                                                 CustomerFact.actor_id
                                                 == req.actor_id,
-                                                CustomerFact.predicate
-                                                == "customer_location",
+                                                CustomerFact.relation
+                                                == "location",
                                                 CustomerFact.status
                                                 == "current")
                                             .order_by(

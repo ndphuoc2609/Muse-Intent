@@ -158,6 +158,94 @@ class _SimpleProvider:
             "claims": [], "goal": "share_experience"})])
 
 
+class _LeadConfirmProvider:
+    """plan -> propose_customer_fact(phone) -> final với goal cho trước.
+    Dùng để khóa hành vi: xác nhận lead bằng goal handoff thì bị giữ
+    review + fact bị reject; bằng answer_question thì sent + fact current."""
+
+    def __init__(self, goal):
+        self.goal = goal
+
+    def _called(self, messages):
+        called = set()
+        for m in messages:
+            if m.get("role") == "tool":
+                try:
+                    called.add(json.loads(m.get("content", "{}")).get("tool"))
+                except Exception:
+                    continue
+        return called
+
+    def chat(self, messages, tools):
+        from app.providers.base import ProviderResult, ToolCall
+        called = self._called(messages)
+        if "plan_turn" not in called:
+            return ProviderResult(tool_calls=[ToolCall("plan_turn", {
+                "intents": [{"type": "share_need", "subject": "self",
+                             "relation": "liên hệ",
+                             "normalized": "Khách cho SĐT để sale liên hệ",
+                             "evidence": "Số em là 0901234567",
+                             "source": "stated", "confidence": 1}],
+                "pending_questions": [], "answered_question_keys": [],
+                "known_customer": {}, "known_persona": {},
+                "data_needs": [],
+                "goal": "answer_question",
+                "response_direction": {"answer_first": True,
+                                       "ask_followup": False}})])
+        if "propose_customer_fact" not in called:
+            return ProviderResult(tool_calls=[ToolCall(
+                "propose_customer_fact", {
+                    "subject": "self", "predicate": "phone_number",
+                    "value_raw": "0901234567",
+                    "evidence": "Số em là 0901234567, bác gửi sale "
+                                "add Zalo giúp em nhé.",
+                    "source": "stated", "confidence": 1.0,
+                    "need_kind": "explicit", "certainty": "high"})])
+        return ProviderResult(tool_calls=[ToolCall("submit_final_reply", {
+            "text": "Mình ghi nhận số của bạn để chuyển lại bên Hyundai nhé.",
+            "claims": [], "goal": self.goal})])
+
+
+def _phone_fact(session, thread_id):
+    from app.models import CustomerFact
+    from sqlalchemy import select
+    rows = session.execute(select(CustomerFact).where(
+        CustomerFact.thread_id == thread_id,
+        CustomerFact.predicate == "phone_number")).scalars().all()
+    return rows
+
+
+def test_lead_confirm_handoff_goes_to_review_and_rejects_fact(session):
+    from app.engine.fake_sender import FakeSender
+    from app.engine.pipeline import Pipeline
+    from app.schemas import TurnRequest
+    pipe = Pipeline(session, _LeadConfirmProvider("handoff"), FakeSender())
+    r = pipe.run(TurnRequest(
+        persona_id="AUTO_029", post_text="Bài về Creta.",
+        post_vehicle_models=["Hyundai Creta"],
+        actor_id="actor-1",
+        text="Số em là 0901234567, bác gửi sale add Zalo giúp em nhé."))
+    assert r.status == "review"
+    rows = _phone_fact(session, r.thread_id)
+    assert rows and all(f.status == "rejected" for f in rows)
+
+
+def test_lead_confirm_answer_question_sends_and_saves_fact(session):
+    from app.engine.fake_sender import FakeSender
+    from app.engine.pipeline import Pipeline
+    from app.schemas import TurnRequest
+    pipe = Pipeline(session, _LeadConfirmProvider("answer_question"),
+                    FakeSender())
+    r = pipe.run(TurnRequest(
+        persona_id="AUTO_029", post_text="Bài về Creta.",
+        post_vehicle_models=["Hyundai Creta"],
+        actor_id="actor-1",
+        text="Số em là 0901234567, bác gửi sale add Zalo giúp em nhé."))
+    assert r.status == "sent"
+    rows = _phone_fact(session, r.thread_id)
+    assert rows and all(f.status == "current" for f in rows)
+
+
 def test_server_retrieval_runs_every_turn_on_same_pipeline(session):
     """Hồi quy: cờ _server_retrieval_done cũ là thuộc tính instance nên
     Pipeline dùng lại qua nhiều lượt lặng lẽ mất retrieval từ lượt 2
