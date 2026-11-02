@@ -36,6 +36,14 @@ PRIVATE_REQUEST_PHRASES = [
     "cho mình số điện thoại", "cho xin số điện thoại", "địa chỉ nhà của bạn",
     "gửi số điện thoại", "cho mình địa chỉ nhà",
 ]
+# Câu tuyên bố thiếu dữ liệu kiểu hệ thống — người dùng thật không nói
+# vậy ("mình chưa có dữ liệu để so sánh..."). Gặp là lỗi để vòng repair
+# viết lại tự nhiên (nói "mình không rõ lắm" rồi chuyển sang sale/đại
+# lý), không phải để model thanh minh bằng giọng hệ thống.
+DATA_DISCLAIMER_PHRASES = [
+    "chưa có dữ liệu", "không có dữ liệu",
+    "chưa có thông số", "không có thông số",
+]
 _ECHO_MARKERS = ("bạn nói", "bạn bảo", "theo bạn", "bạn nhắc", "bạn kể")
 _NEGATIONS = ("không phải", "không có", "chưa phải", "không phải là")
 
@@ -198,6 +206,12 @@ def validate(final: dict, ctx: dict) -> list[str]:
             if ctx.get("lead_capture") and p in _phone_phrases:
                 continue
             errors.append(f"private_request: '{p}' không được hỏi ở kênh public")
+    # 2b. Tuyên bố thiếu dữ liệu/thông số kiểu hệ thống.
+    for p in DATA_DISCLAIMER_PHRASES:
+        if _norm(p) in low:
+            errors.append(f"data_disclaimer: reply chứa '{p}' — nói tự "
+                          "nhiên ('mình không rõ lắm') rồi chuyển sang "
+                          "sale/đại lý, đừng thanh minh bằng giọng hệ thống")
     # 3. Opt-out: không hỏi thêm, không gợi mở.
     if ctx.get("opted_out"):
         if final.get("followup_question"):
