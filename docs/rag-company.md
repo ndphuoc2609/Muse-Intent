@@ -36,8 +36,23 @@ khuyến mãi đưa vào chunk company trước.
   "mua" chỉ khớp trên text gốc có dấu.
 - Pipeline mở COMPANY_EVIDENCE khi lượt này HOẶC lượt khách trước
   trong thread có tín hiệu lead; lượt thường không đính kèm.
+- Khớp tỉnh chính xác (`match_company_by_province`): khi thread đã có
+  customer_location, đại lý cùng tỉnh được đưa lên trước vector
+  (câu ngắn kiểu "Em ở Hà Nội ạ." chỉ đạt ~0.12, sát ngưỡng 0.10 nên
+  mong manh; khớp tỉnh thì chắc chắn). "Đà Nẵng" khớp "TP Đà Nẵng"
+  theo kiểu một bên chứa bên kia sau khi bỏ dấu.
 - Claim đại lý: kind `company`, validator kiểm tra khớp chunk như kind
   rag (`company_unsaved_detail` nếu sai).
+
+## Bug cờ retrieval (2026-11-02)
+
+`_server_retrieval_done` cũ là thuộc tính instance nên Pipeline dùng
+lại qua nhiều lượt lặng lẽ mất toàn bộ story/RAG/company retrieval từ
+lượt 2 trở đi — live demo lead đầu tiên mất evidence đại lý ở lượt 3
+vì đúng lỗi này. Fix: reset cờ đầu mỗi `run()` (HTTP API tạo Pipeline
+mới mỗi lượt nên không dính, nhưng harness dùng chung thì dính).
+Regression test: cùng một Pipeline chạy 2 lượt, lượt 2 vẫn có
+retrieval_evidence.
 
 ## LEAD_CAPTURE (prompt)
 

@@ -155,6 +155,14 @@ class Pipeline:
 
     def run(self, req: TurnRequest, idempotency_key: str | None = None) -> TurnResponse:
         started = time.time()
+        # Server retrieval chạy một lần MỖI LƯỢT (sau plan_turn), không
+        # phải một lần mỗi Pipeline: cờ cũ là thuộc tính instance nên
+        # Pipeline dùng lại qua nhiều lượt (demo, test, server giữ kết
+        # nối) sẽ lặng lẽ mất toàn bộ story/RAG/company retrieval từ
+        # lượt 2 trở đi — live demo lead 2026-11-02 đã mất evidence đại
+        # lý ở lượt 3 vì đúng lỗi này (HTTP API tạo Pipeline mới mỗi
+        # lượt nên không dính, nhưng harness dùng chung thì dính).
+        self._server_retrieval_done = False
         # --- 1. Binding: persona phải tồn tại; thread thuộc persona đó.
         persona = self.s.get(Persona, req.persona_id)
         if persona is None:
@@ -590,6 +598,44 @@ class Pipeline:
                                     _comp = retrieve_company_chunks(
                                         self.s, _qv2, limit=3,
                                         threshold=_th2)
+                                    # Khớp tỉnh chính xác bổ sung cho
+                                    # vector (câu ngắn kiểu "Em ở Hà Nội"
+                                    # chỉ đạt ~0.12, sát ngưỡng): lấy
+                                    # customer_location hiện tại của
+                                    # thread này, đưa đại lý cùng tỉnh
+                                    # lên trước, dedupe theo chunk_id.
+                                    try:
+                                        from .rag import (
+                                            match_company_by_province)
+                                        from ..models import CustomerFact
+                                        _loc = self.s.execute(
+                                            select(CustomerFact).where(
+                                                CustomerFact.thread_id
+                                                == thread.id,
+                                                CustomerFact.actor_id
+                                                == req.actor_id,
+                                                CustomerFact.predicate
+                                                == "customer_location",
+                                                CustomerFact.status
+                                                == "current")
+                                            .order_by(
+                                                CustomerFact.id.desc())
+                                            ).scalars().first()
+                                        if _loc is not None:
+                                            _area = (
+                                                _loc.value_normalized
+                                                or _loc.value_raw or "")
+                                            _prov = match_company_by_province(
+                                                self.s, _area, limit=3)
+                                            _seen = {
+                                                d["chunk_id"]
+                                                for d in _comp}
+                                            _comp = [d for d in _prov
+                                                     if d["chunk_id"]
+                                                     not in _seen] + _comp
+                                            _comp = _comp[:3]
+                                    except Exception:
+                                        pass
                                     if _comp:
                                         for _d in _comp:
                                             executor.retrieved[
@@ -608,7 +654,8 @@ class Pipeline:
                                             "\n" + "\n".join(
                                                 f"- [{_d['chunk_id']}] "
                                                 f"{_d['text']} "
-                                                f"(score={_d['score']})"
+                                                f"(score={_d['score']}"
+                                                f"{' khớp tỉnh thành chính xác' if _d.get('match') == 'province' else ''})"
                                                 for _d in _comp))
                                         trace_company_evidence = _comp
                         except Exception as _comp_exc:

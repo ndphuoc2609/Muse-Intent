@@ -123,6 +123,32 @@ def retrieve_company_chunks(session, query_vector,
     scored.sort(key=lambda d: d["score"], reverse=True)
     return scored[:limit]
 
+
+def match_company_by_province(session, area: str,
+                              limit: int = 3) -> list[dict]:
+    """Khớp đại lý theo tỉnh thành CHÍNH XÁC (không qua vector): tỉnh
+    trong chunk khớp area khi một bên chứa bên kia sau khi bỏ dấu
+    ('Đà Nẵng' khớp 'TP Đà Nẵng'). Dùng khi đã biết khu vực của khách
+    — vector TF-IDF cho câu ngắn kiểu 'Em ở Hà Nội ạ.' chỉ đạt ~0.12,
+    sát ngưỡng 0.10 nên mong manh; khớp tỉnh thì chắc chắn."""
+    import re
+    needle = _strip(area)
+    if not needle:
+        return []
+    out = []
+    for row in session.execute(
+            select(RagChunk).where(
+                RagChunk.domain == "company")).scalars().all():
+        m = re.search(r"Tỉnh thành: ([^.]+)\.", row.text or "")
+        prov = _strip(m.group(1)) if m else ""
+        if prov and (needle in prov or prov in needle):
+            out.append({
+                "chunk_id": row.id, "chunk_type": row.chunk_type,
+                "source_ref": row.source_ref, "text": row.text,
+                "score": 1.0, "match": "province"})
+    out.sort(key=lambda d: d["chunk_id"])
+    return out[:limit]
+
 # Ngưỡng đo thực tế trên corpus này (query mẫu, AUTO_029): chunk liên
 # quan đạt 0.118–0.276, nhiễu ≤0.095 — ngưỡng TF-IDF 0.10 tách được hai
 # nhóm với biên mỏng, nên pipeline chỉ lấy tối đa 3 chunk và validator

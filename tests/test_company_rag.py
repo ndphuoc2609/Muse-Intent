@@ -98,3 +98,84 @@ def test_has_lead_signal():
     assert has_lead_signal("cho mình liên hệ sale")
     assert not has_lead_signal("trời mưa đường ngập thì sao?")
     assert not has_lead_signal("mình ở Hà Nội")
+
+
+def test_match_company_by_province(session):
+    chunks = build_company_chunks(DEALERS)
+    for c in chunks:
+        session.add(RagChunk(id=c["id"], persona_id=None, domain="company",
+                             chunk_type=c["chunk_type"],
+                             source_ref=c["source_ref"], text=c["text"],
+                             embedding="{}"))
+    session.commit()
+    from app.engine.rag import match_company_by_province
+    hn = match_company_by_province(session, "Hà Nội")
+    assert [d["chunk_id"] for d in hn] == ["company_VN029"]
+    assert all(d["score"] == 1.0 and d["match"] == "province" for d in hn)
+    assert match_company_by_province(session, "Cần Thơ") == []
+    # "Đà Nẵng" khớp tỉnh "TP Đà Nẵng" (một bên chứa bên kia).
+    session.add(RagChunk(
+        id="company_VC020", persona_id=None, domain="company",
+        chunk_type="dealer", source_ref="VC020",
+        text="Đại lý: Hyundai Sông Hàn (VC020). Khu vực: Trung. "
+             "Tỉnh thành: TP Đà Nẵng. Địa chỉ: 86 Duy Tân.",
+        embedding="{}"))
+    session.commit()
+    dn = match_company_by_province(session, "Đà Nẵng")
+    assert [d["chunk_id"] for d in dn] == ["company_VC020"]
+
+
+class _SimpleProvider:
+    """plan -> final trơn, đủ để server retrieval chạy sau plan."""
+
+    def _called(self, messages):
+        called = set()
+        for m in messages:
+            if m.get("role") == "tool":
+                try:
+                    called.add(json.loads(m.get("content", "{}")).get("tool"))
+                except Exception:
+                    continue
+        return called
+
+    def chat(self, messages, tools):
+        from app.providers.base import ProviderResult, ToolCall
+        if "plan_turn" not in self._called(messages):
+            return ProviderResult(tool_calls=[ToolCall("plan_turn", {
+                "intents": [{"type": "ask_persona", "subject": "persona",
+                             "relation": "chuyến đi",
+                             "normalized": "Hỏi chuyện",
+                             "evidence": "chuyện", "source": "stated",
+                             "confidence": 1}],
+                "pending_questions": [], "answered_question_keys": [],
+                "known_customer": {}, "known_persona": {},
+                "data_needs": ["persona_stories"],
+                "goal": "share_experience",
+                "response_direction": {"answer_first": True,
+                                       "ask_followup": False}})])
+        return ProviderResult(tool_calls=[ToolCall("submit_final_reply", {
+            "text": "Mình hiểu rồi.",
+            "claims": [], "goal": "share_experience"})])
+
+
+def test_server_retrieval_runs_every_turn_on_same_pipeline(session):
+    """Hồi quy: cờ _server_retrieval_done cũ là thuộc tính instance nên
+    Pipeline dùng lại qua nhiều lượt lặng lẽ mất retrieval từ lượt 2
+    (live demo lead 2026-11-02 mất evidence đại lý ở lượt 3 vì vậy)."""
+    from app.engine.fake_sender import FakeSender
+    from app.engine.pipeline import Pipeline
+    from app.schemas import TurnRequest
+    pipe = Pipeline(session, _SimpleProvider(), FakeSender())
+    r1 = pipe.run(TurnRequest(
+        persona_id="AUTO_029", post_text="Bài về Creta.",
+        post_vehicle_models=["Hyundai Creta"],
+        actor_id="actor-1", text="Trời mưa đường ngập thì sao?"))
+    assert r1.status == "sent"
+    r2 = pipe.run(TurnRequest(
+        persona_id="AUTO_029", post_text="Bài về Creta.",
+        post_vehicle_models=["Hyundai Creta"],
+        actor_id="actor-1", text="chở chó đi công viên cuối tuần",
+        thread_id=r1.thread_id))
+    assert r2.status == "sent"
+    assert r2.trace.get("retrieval_evidence"), \
+        "lượt 2 trên cùng Pipeline vẫn phải chạy server retrieval"
