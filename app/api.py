@@ -16,6 +16,7 @@ from .engine.enrichment import find_gaps, publish_draft, validate_draft
 from .engine.fake_sender import FakeSender
 from .engine.persona_validator import validate_persona
 from .engine.pipeline import Pipeline
+from .engine.reactions import get_reactions, toggle_reaction
 from .engine.taxonomy import CATEGORIES, TAGS, TAXONOMY_VERSION
 from .engine.tools import canonical_view
 from .models import (EnrichmentDraft, Message, Persona, PersonaCategory,
@@ -165,6 +166,17 @@ def turn_new(req: TurnRequest,
         return pipe.run(req, idempotency_key=idempotency_key)
 
 
+def _iso_utc(dt):
+    """created_at ra ISO có múi giờ: _now() luôn là UTC, nhưng SQLite
+    trả về naive nên phải gắn Z, nếu không trình duyệt hiểu nhầm thành
+    giờ local và thời gian tương đối lệch đúng bằng lệch múi giờ."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.isoformat() + "Z"
+    return dt.isoformat()
+
+
 @app.get("/threads/{thread_id}/messages")
 def thread_messages(thread_id: str):
     with _session() as s:
@@ -172,8 +184,37 @@ def thread_messages(thread_id: str):
             select(Message).where(Message.thread_id == thread_id)
             .order_by(Message.created_at)).scalars().all()
         return [{"id": r.id, "role": r.role, "actor_id": r.actor_id,
-                 "text": r.text, "status": r.status, "trace": r.trace}
+                 "text": r.text, "status": r.status, "trace": r.trace,
+                 "created_at": _iso_utc(r.created_at)}
                 for r in rows]
+
+
+class ReactionRequest(BaseModel):
+    actor_id: str
+    emoji: str
+
+
+@app.get("/threads/{thread_id}/reactions")
+def thread_reactions(thread_id: str, actor_id: str | None = None):
+    """Tổng hợp reactions cả thread + reaction của actor đang xem."""
+    with _session() as s:
+        t = s.get(Thread, thread_id)
+        if not t:
+            raise HTTPException(404, "thread không tồn tại")
+        return get_reactions(s, thread_id, actor_id or "")
+
+
+@app.post("/threads/{thread_id}/messages/{message_id}/reactions")
+def react_to_message(thread_id: str, message_id: str, req: ReactionRequest):
+    """Bấm reaction: thêm / đổi / gỡ (mỗi actor 1 reaction/message)."""
+    with _session() as s:
+        try:
+            return toggle_reaction(s, thread_id, message_id,
+                                   req.actor_id, req.emoji)
+        except LookupError as e:
+            raise HTTPException(404, str(e))
+        except ValueError as e:
+            raise HTTPException(400, str(e))
 
 
 @app.post("/personas/{persona_id}/stories/{event_id}/revoke")

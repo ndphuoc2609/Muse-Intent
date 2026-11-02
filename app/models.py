@@ -458,6 +458,22 @@ class RagIndexMeta(Base):
     value: Mapped[str] = mapped_column(Text)
 
 
+class MessageReaction(Base):
+    """Reaction kiểu Facebook cho một comment: mỗi actor tối đa 1
+    reaction mỗi message (bấm emoji khác thì đổi, bấm lại thì gỡ)."""
+    __tablename__ = "message_reactions"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    message_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("messages.id"))
+    actor_id: Mapped[str] = mapped_column(String(64))
+    emoji: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    __table_args__ = (
+        UniqueConstraint("message_id", "actor_id",
+                         name="uq_reaction_message_actor"),
+    )
+
+
 class Delivery(Base):
     __tablename__ = "deliveries"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
