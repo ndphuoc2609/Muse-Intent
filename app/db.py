@@ -10,6 +10,14 @@ thiếu, báo lỗi rõ ràng kèm lệnh cài thay vì traceback dài của SQL
 Neon: host *.neon.tech bắt buộc SSL, nên nếu URL Neon chưa có sslmode
 thì tự thêm sslmode=require. Postgres local (docker-compose) không bị
 ép SSL, để không phá setup local.
+
+Neon/proxy đóng connection idle (Neon suspend compute sau ~5 phút
+không hoạt động): connection chết nằm lại trong pool, request sau
+checkout phải nó là nổ "SSL connection has been closed unexpectedly"
+ngay câu query đầu tiên (gặp ở GET /personas trên Mac 2026-11-03).
+Chữa ở tầng pool: pool_pre_ping kiểm tra connection khi checkout
+(chết thì bỏ, mở mới trong suốt) + pool_recycle thu hồi connection
+trước 5 phút. Chỉ áp cho Postgres, SQLite giữ nguyên.
 """
 from __future__ import annotations
 
@@ -33,10 +41,14 @@ def _normalize_postgres_url(url: str) -> str:
 def make_engine(url: str | None = None):
     url = _normalize_postgres_url(url or SETTINGS.database_url)
     connect_args = {}
+    pool_kwargs = {}
     if url.startswith("sqlite"):
         connect_args = {"check_same_thread": False}
+    elif url.startswith("postgresql"):
+        pool_kwargs = {"pool_pre_ping": True, "pool_recycle": 280}
     try:
-        return create_engine(url, connect_args=connect_args, future=True)
+        return create_engine(url, connect_args=connect_args, future=True,
+                             **pool_kwargs)
     except ModuleNotFoundError as e:
         if "psycopg" in str(e):
             raise RuntimeError(
