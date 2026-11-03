@@ -53,6 +53,8 @@ textarea{resize:vertical}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .row .btn{margin-top:8px}
 .meta{color:var(--fb-secondary);font-size:13px;overflow-wrap:anywhere}
+.trace-flow{font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.trace-flow div{padding:1px 0}
 .meta code{background:var(--fb-hover);border-radius:4px;padding:1px 6px;font-size:12px}
 /* Setup: avatar + chips nhỏ. */
 .persona-head{display:flex;gap:12px;align-items:center;margin-top:12px}
@@ -528,7 +530,7 @@ function renderComments(messages, reactions){
     if (row) {
       const body = row.querySelector('.comment-body');
       const det = document.createElement('details');
-      det.innerHTML = '<summary>Chi tiết kỹ thuật (planner, tool, fact/story đã lưu, validator)</summary>' + lastTrace.html + (lastReplayNote ? '<p class="meta">' + esc(lastReplayNote) + '</p>' : '');
+      det.innerHTML = '<summary>Luồng lượt vừa gửi (tóm tắt + chi tiết kỹ thuật)</summary>' + lastTrace.html + (lastReplayNote ? '<p class="meta">' + esc(lastReplayNote) + '</p>' : '');
       body.appendChild(det);
     }
   }
@@ -635,8 +637,14 @@ async function sendTurn() {
   const isReplay = d.trace && d.trace.idempotent_replay === true;
   renderPlanner(d);
   const replyText = d.reply_text || (d.validator_errors && d.validator_errors.length ? 'Lỗi: ' + d.validator_errors.join('; ') : (d.detail ? 'Lỗi: ' + d.detail : '(không có reply)'));
+  // Flow đọc được lên trước; JSON đầy đủ để sau, và trace trong JSON
+  // đã bỏ các key trùng với planner/tool/fact ở ngoài (trước đây JSON
+  // này dài gấp đôi vì cùng một khối xuất hiện 2 lần).
+  const flowLines = d.flow || (d.trace && d.trace.flow) || [];
+  const flowHtml = flowLines.length ? '<div class="trace-flow">' + flowLines.map(l => '<div>' + esc(l) + '</div>').join('') + '</div>' : '';
+  const {planner: _tp, tool_calls: _tt, saved_customer_facts: _tf, saved_stories: _ts, flow: _tfl, ...metrics} = d.trace || {};
   lastTrace = d.message_id ? {messageId: d.message_id,
-    html: '<pre>' + esc(JSON.stringify({planner:d.planner, tool_calls:d.tool_calls, saved_customer_facts:d.saved_customer_facts, saved_stories:d.saved_stories, validator_errors:d.validator_errors, trace:d.trace}, null, 2)) + '</pre>'} : null;
+    html: flowHtml + '<details><summary>JSON đầy đủ</summary><pre>' + esc(JSON.stringify({flow: flowLines, planner:d.planner, tool_calls:d.tool_calls, saved_customer_facts:d.saved_customer_facts, saved_stories:d.saved_stories, validator_errors:d.validator_errors, metrics}, null, 2)) + '</pre></details>'} : null;
   lastReplayNote = isReplay ? '⚠️ Đây là reply cũ được trả lại vì trùng Idempotency-Key, KHÔNG phải câu trả lời cho comment mới — comment mới cũng chưa được lưu vào lịch sử. Xóa key và gửi lại để nhận câu mới.' : null;
   // Xóa key sau mỗi lượt đã tới server: để key cũ nằm lại trong ô là
   // bẫy — lượt sau khác nội dung nhưng cùng key sẽ bị replay reply cũ

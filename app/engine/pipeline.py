@@ -146,6 +146,54 @@ def _validate_tool_args(name, args):
     return None
 
 
+# Nhãn đọc được cho flow tóm tắt (không dùng tên field thô).
+_FACT_LABELS = {"phone_number": "SĐT", "location": "Khu vực",
+                "vehicle_interest": "Mẫu xe quan tâm",
+                "usage_context": "Ngữ cảnh dùng xe", "preference": "Ưu tiên",
+                "commute_distance": "Quãng đường đi làm",
+                "buying_interest": "Ý định mua", "usage_need": "Nhu cầu dùng xe"}
+_GOAL_LABELS = {"answer_question": "trả lời",
+                "explore_need": "khai thác nhu cầu",
+                "share_experience": "chia sẻ trải nghiệm", "clarify": "hỏi rõ",
+                "empathize": "đồng cảm", "stop": "dừng",
+                "handoff": "chuyển giao"}
+_FACT_STATUS_NOTES = {"pending": "chờ gửi xong mới chính thức",
+                       "current": "đã lưu", "rejected": "bị từ chối"}
+
+
+def build_flow(planner, final, saved_customer_facts, saved_stories,
+               validator_errors, cost, latency_s, llm_calls):
+    """Một dòng một bước, từ dữ liệu đã có sẵn — không gọi thêm LLM."""
+    lines = []
+    intents = (planner or {}).get("intents") or []
+    if intents:
+        first = intents[0].get("normalized") or intents[0].get("type") or "?"
+        extra = f" (+{len(intents) - 1} ý khác)" if len(intents) > 1 else ""
+        lines.append(f"Khách: {first}{extra}")
+    else:
+        lines.append("Khách: (không xác định được ý)")
+    goal = (final or {}).get("goal") or (planner or {}).get("goal") or "?"
+    direction = _GOAL_LABELS.get(goal, goal)
+    fq = (final or {}).get("followup_question")
+    lines.append(f"Hướng: {direction}"
+                 + (f", hỏi tiếp: {fq}" if fq else ", không hỏi tiếp"))
+    for f in saved_customer_facts or []:
+        label = _FACT_LABELS.get(f.get("predicate"), f.get("predicate") or "?")
+        note = _FACT_STATUS_NOTES.get(f.get("status"), f.get("status") or "")
+        lines.append(f"Lưu: {label} = {f.get('value_normalized')} ({note})")
+    for st in saved_stories or []:
+        lines.append(f"Lưu truyện: "
+                     f"{st.get('title') or st.get('summary') or st.get('event_id') or '?'}")
+    lines.append(f"Trả lời: {(final or {}).get('text') or ''}")
+    if validator_errors:
+        lines.append("Kiểm tra: " + "; ".join(validator_errors))
+    else:
+        lines.append("Kiểm tra: 0 lỗi")
+    lines.append(f"Chi phí: ${cost:.6f}, {latency_s:.1f}s, "
+                 f"{llm_calls} lần gọi LLM")
+    return lines
+
+
 class Pipeline:
     def __init__(self, session, provider, sender: FakeSender | None = None):
         self.s = session
@@ -720,9 +768,11 @@ class Pipeline:
             "company_error": trace_company_error,
         }
         if final is None:
+            error_flow = [f"Lỗi: {stop_reason or 'không tạo được câu trả lời'}"]
             msg = Message(thread_id=thread.id, role="persona", text="",
                           status="error", idempotency_key=None,
-                          trace={**trace_base, "error": stop_reason})
+                          trace={**trace_base, "error": stop_reason,
+                                 "flow": error_flow})
             self.s.add(msg)
             self.s.commit()
             executor.reject_pending()
@@ -734,6 +784,7 @@ class Pipeline:
                                 saved_customer_facts=executor.saved_customer_facts,
                                 saved_stories=executor.saved_stories,
                                 validator_errors=[stop_reason or "no_final"],
+                                flow=error_flow,
                                 trace=trace_base)
         # --- 4. Validator + repair loop.
         opted_out = planner.goal == "stop" or any(
@@ -817,6 +868,13 @@ class Pipeline:
         # final sửa mới được tạo QuestionState ở bước delivery.
         opted_out = goal == "stop" or any(
             i.type == "opt_out" for i in planner.intents)
+        # Flow tóm tắt: gắn vào trace_base để Message.trace lưu kèm
+        # (replay idempotent cũng thấy được flow), và trả top-level.
+        flow = build_flow(planner.model_dump(), final,
+                          executor.saved_customer_facts,
+                          executor.saved_stories, validator_errors,
+                          cost, time.time() - started, llm_calls)
+        trace_base["flow"] = flow
         # --- 5. Cập nhật QuestionState: chỉ ANSWERED khi planner nêu key.
         # Chuyển chủ đề KHÔNG có nghĩa đã trả lời, và KHÔNG tự đổi
         # pending -> redirected (lỗi cũ làm mất câu hỏi đang chờ).
@@ -846,6 +904,7 @@ class Pipeline:
                                 saved_customer_facts=executor.saved_customer_facts,
                                 saved_stories=executor.saved_stories,
                                 validator_errors=validator_errors,
+                                flow=flow,
                                 trace=trace_base)
         if goal == "handoff":
             msg = Message(thread_id=thread.id, role="persona", text=reply_text,
@@ -861,6 +920,7 @@ class Pipeline:
                                 tool_calls=tool_calls_log,
                                 saved_customer_facts=executor.saved_customer_facts,
                                 saved_stories=executor.saved_stories,
+                                flow=flow,
                                 trace=trace_base)
         msg = Message(thread_id=thread.id, role="persona", text=reply_text,
                       status="draft", idempotency_key=None,
@@ -929,6 +989,7 @@ class Pipeline:
                                 tool_calls=tool_calls_log,
                                 saved_customer_facts=executor.saved_customer_facts,
                                 saved_stories=executor.saved_stories,
+                                flow=flow,
                                 trace=trace_base)
         msg.status = "error"
         self.s.add(Delivery(message_id=msg.id, sender="fake",
@@ -943,6 +1004,7 @@ class Pipeline:
                             saved_customer_facts=executor.saved_customer_facts,
                             saved_stories=executor.saved_stories,
                             validator_errors=["fake_sender_failed"],
+                            flow=flow,
                             trace=trace_base)
 
     def _update_questions(self, thread_id, actor_id, planner, user_msg_id,

@@ -103,4 +103,7 @@ class TurnResponse(BaseModel):
     saved_customer_facts: list[dict] = []
     saved_stories: list[dict] = []
     validator_errors: list[str] = []
+    # Tóm tắt luồng lượt này, mỗi bước một dòng đọc được ngay (đọc flow
+    # thay vì dò JSON trace khi chỉ cần biết lượt vừa rồi xảy ra gì).
+    flow: list[str] = []
     trace: dict = {}
