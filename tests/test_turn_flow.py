@@ -6,7 +6,9 @@ from app.engine.pipeline import build_flow
 
 
 def test_flow_on_sent_turn(pipe):
-    r = turn(pipe, "Chào bạn")
+    # Input cu: "Chào bạn" — nay la entry FAQ greeting nen gate chan;
+    # doi sang loi chao khong co trong bank de test van di qua pipeline.
+    r = turn(pipe, "Chào buổi sáng")
     assert r.status == "sent"
     assert r.flow, "flow không được rỗng"
     assert r.flow[0].startswith("Khách:")

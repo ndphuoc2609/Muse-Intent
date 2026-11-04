@@ -379,6 +379,57 @@ class Pipeline:
         executor = ToolExecutor(self.s, req.persona_id, thread.id, req.actor_id,
                                 current_message_id=user_msg.id,
                                 current_user_text=req.text)
+        # --- Gate truoc LLM (luat + FAQ, khong goi model) ---
+        # Dat sau khi da co pending_qs + _lead_capture, truoc khi build
+        # prompt va goi provider: luot nao gate chan thi khong ton call
+        # nao, khong ton token nao. Luot bypass/FAQ van giu message khach
+        # trong lich su (da luu o tren); chi khong tao goi LLM.
+        from .gate import decide_gate, load_bank
+        _gate = decide_gate(req.text, has_pending=bool(pending_qs),
+                            has_lead=_lead_capture, bank=load_bank())
+        if _gate.action == "bypass":
+            if idempotency_key and idem_rec is not None:
+                try:
+                    idem_rec.status = "skipped"
+                    self.s.commit()
+                except Exception:
+                    self.s.rollback()
+            return TurnResponse(
+                status="skipped", thread_id=thread.id,
+                message_id=None, reply_text=None,
+                flow=[f"Gate: bỏ qua — {_gate.reason} (không gọi LLM)",
+                      "Chi phí: $0.000000, 0.0s, 0 calls"],
+                trace={"gate": {"action": "bypass", "reason": _gate.reason}})
+        if _gate.action == "faq":
+            _faq_trace = {"gate": {"action": "faq", "entry_id": _gate.faq_id,
+                                   "reason": _gate.reason}}
+            _faq_msg = Message(thread_id=thread.id, role="persona",
+                               text=_gate.answer, status="draft",
+                               idempotency_key=None, trace=_faq_trace)
+            self.s.add(_faq_msg)
+            self.s.commit()
+            _faq_result = self.sender.send(_faq_msg.id, _gate.answer)
+            if _faq_result["status"] == "sent":
+                _faq_msg.status = "sent"
+                self.s.add(Delivery(message_id=_faq_msg.id, sender="fake",
+                                    status="sent"))
+                self.s.commit()
+                _idem_update(_faq_msg)
+                return TurnResponse(
+                    status="sent", thread_id=thread.id,
+                    message_id=_faq_msg.id, reply_text=_gate.answer,
+                    flow=[f"Gate: trả lời từ FAQ đã duyệt (entry {_gate.faq_id}) — không gọi LLM",
+                          "Chi phí: $0.000000, 0.0s, 0 calls"],
+                    trace=_faq_trace)
+            _faq_msg.status = "error"
+            self.s.commit()
+            _idem_update(_faq_msg)
+            return TurnResponse(
+                status="error", thread_id=thread.id,
+                message_id=_faq_msg.id, reply_text=_gate.answer,
+                validator_errors=["faq_delivery_failed: FakeSender không gửi được câu trả lời FAQ"],
+                flow=[f"Gate: FAQ entry {_gate.faq_id} — gửi thất bại"],
+                trace=_faq_trace)
         # Lịch sử phải là message thật (user/assistant), không chỉ là text
         # nhét trong system: câu trả lời ngắn, lược bỏ chủ ngữ như
         # "Tiết kiệm thôi" chỉ hiểu được khi model thấy câu hỏi ngay

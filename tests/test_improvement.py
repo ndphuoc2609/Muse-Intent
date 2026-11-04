@@ -183,7 +183,10 @@ class _PlannerFirstStub:
 
 def test_mutation_before_plan_is_blocked(session):
     pipe = Pipeline(session, _PlannerFirstStub(), FakeSender())
-    r = turn(pipe, "Chào bạn.")
+    # Input cu: "Chào bạn." — nay la entry FAQ greeting nen gate chan
+    # truoc provider; doi sang loi chao khong co trong bank de test
+    # van di qua pipeline (muc dich test la pipeline, khong phai chao).
+    r = turn(pipe, "Chào buổi sáng")
     assert r.status == "sent"
     assert r.reply_text == "Chào bạn."
     # The pre-plan propose must NOT have become a fact.
@@ -216,14 +219,14 @@ def test_plain_text_with_facts_is_not_sent(session):
 def test_plain_text_pure_social_is_sent(session):
     pipe = Pipeline(session, _PlainTextStub("Chào bạn, mình đây."),
                     FakeSender())
-    r = turn(pipe, "Chào bạn.")
+    r = turn(pipe, "Chào buổi sáng")
     assert r.status == "sent"
 
 
 def test_cost_unknown_is_not_zero_in_trace(session):
     pipe = Pipeline(session, _PlainTextStub("Chào bạn, mình đây."),
                     FakeSender())
-    r = turn(pipe, "Chào bạn.")
+    r = turn(pipe, "Chào buổi sáng")
     assert r.trace.get("cost_known") is False
     assert r.trace.get("cost_unknown_calls", 0) >= 1
     assert r.trace.get("http_attempts", 0) >= 1

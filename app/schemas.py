@@ -15,7 +15,7 @@ TurnGoal = Literal[
     "answer_question", "share_experience", "clarify", "explore_need",
     "empathize", "stop", "handoff",
 ]
-TurnStatus = Literal["sent", "draft", "blocked", "review", "error"]
+TurnStatus = Literal["sent", "draft", "blocked", "review", "error", "skipped"]
 
 
 class IntentItem(BaseModel):
