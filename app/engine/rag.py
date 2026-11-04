@@ -40,7 +40,7 @@ import unicodedata
 
 from sqlalchemy import select
 
-from ..models import RagChunk, RagIndexMeta
+from ..models import CustomerFact, RagChunk, RagIndexMeta
 
 
 def _strip(text: str) -> str:
@@ -127,6 +127,26 @@ def retrieve_company_chunks(session, query_vector,
                 "score": round(score, 4)})
     scored.sort(key=lambda d: d["score"], reverse=True)
     return scored[:limit]
+
+
+def find_thread_area(session, thread_id: str, actor_id: str) -> str:
+    """Khu vực khách đã nêu trong thread này (để bổ sung đại lý theo
+    tỉnh). Khớp theo relation='location' HOẶC predicate='location':
+    model có lúc lưu khu vực ở predicate mà relation=None (live
+    2026-11-04: fact Hà Nội predicate='location', relation=None) nên
+    chỉ khớp relation sẽ bỏ sót. Lấy fact mới nhất."""
+    from sqlalchemy import or_
+    row = session.execute(
+        select(CustomerFact).where(
+            CustomerFact.thread_id == thread_id,
+            CustomerFact.actor_id == actor_id,
+            or_(CustomerFact.relation == "location",
+                CustomerFact.predicate == "location"),
+            CustomerFact.status == "current")
+        .order_by(CustomerFact.id.desc())).scalars().first()
+    if row is None:
+        return ""
+    return row.value_normalized or row.value_raw or ""
 
 
 def match_company_by_province(session, area: str,

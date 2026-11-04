@@ -113,7 +113,8 @@ def _claim_covers_typed(claims: list[dict], parser, raw: str) -> bool:
     return False
 
 
-def _uncovered_errors(text: str, claims: list[dict], retrieved: dict) -> list[str]:
+def _uncovered_errors(text: str, claims: list[dict], retrieved: dict,
+                      user_text: str = "") -> list[str]:
     errors: list[str] = []
     claims = claims or []
     for sentence, is_question in _sentences(text):
@@ -160,6 +161,15 @@ def _uncovered_errors(text: str, claims: list[dict], retrieved: dict) -> list[st
         # đệm ("Xe của mình màu trắng" -> "trắng") bằng đúng màu đó.
         for m in re.finditer(r"\bmàu\s+(\w+)", sentence, re.IGNORECASE):
             color = _norm(m.group(1))
+            # Echo màu khách vừa nêu: khách nói "màu trắng" ở lượt này
+            # thì persona nhắc lại "màu trắng" không phải khẳng định mới
+            # về xe của persona — không bắt claim (live 2026-11-04: 3
+            # lượt review chỉ vì echo "trắng" khách vừa nêu). So theo
+            # cùng cách trích một từ như phía persona; màu ghép kiểu
+            # "trắng sữa" vẫn trích thành "trắng" ở cả hai phía.
+            if re.search(r"\bmàu\s+" + re.escape(color) + r"\b",
+                         _norm(user_text)):
+                continue
             covered = False
             for c in claims:
                 if c.get("ref_id") in retrieved:
@@ -358,5 +368,6 @@ def validate(final: dict, ctx: dict) -> list[str]:
                     errors.append(f"company_unsaved_detail: claim company "
                                   f"'{value}' không khớp chunk đại lý đã lưu")
     # 7. Khẳng định có dữ kiện trong văn bản phải được claim bao phủ.
-    errors.extend(_uncovered_errors(text, claims, retrieved))
+    errors.extend(_uncovered_errors(text, claims, retrieved,
+                                    ctx.get("user_text", "")))
     return errors

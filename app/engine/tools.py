@@ -17,6 +17,19 @@ from .consistency import check_addendum, check_story
 from .typed_values import is_plausible_vn_mobile
 
 
+def _story_retrieved_value(summary, body, addenda=()):
+    """Giá trị story để validator đối chiếu: ghép summary/body/addenda,
+    bỏ phần rỗng và phần trùng nguyên văn. Story seed từ memory thường
+    có summary == body — ghép cả hai sẽ nhân đôi câu, làm so khớp chính
+    xác ở validator lệch (live 2026-11-04: mem_1)."""
+    parts = []
+    for p in [summary, body, *addenda]:
+        p = (p or "").strip()
+        if p and p not in parts:
+            parts.append(p)
+    return " ".join(parts)
+
+
 def _today() -> str:
     return date.today().isoformat()
 
@@ -312,7 +325,8 @@ class ToolExecutor:
         data = [canonical_view(self.s, r) for r in rows]
         for r, d in zip(rows, data):
             self.retrieved[r.event_id] = (
-                "story", r.summary + " " + r.body + " " + " ".join(d["addenda"]),
+                "story", _story_retrieved_value(
+                    r.summary, r.body, d["addenda"]),
                 {"status": "active"})
         if not data:
             return ToolResult(status="NOT_FOUND", tool="get_persona_stories",
@@ -568,7 +582,8 @@ class ToolExecutor:
             story = self.s.get(PersonaStory, check["event_id"])
             view = canonical_view(self.s, story)
             self.retrieved[story.event_id] = (
-                "story", story.summary + " " + story.body,
+                "story", _story_retrieved_value(
+                    story.summary, story.body),
                 {"status": story.status})
             return ToolResult(status="FOUND", tool="propose_story",
                               data={**view, "reused": True},
@@ -618,7 +633,8 @@ class ToolExecutor:
         self.s.commit()
         self.pending_story_ids.append(row.event_id)
         self.retrieved[row.event_id] = (
-            "story", row.summary + " " + row.body, {"status": "pending"})
+            "story", _story_retrieved_value(row.summary, row.body),
+            {"status": "pending"})
         tag_res = self._add_pending_tags("story", row.event_id,
                                          args.get("tags"))
         item = canonical_view(self.s, row)
@@ -653,8 +669,9 @@ class ToolExecutor:
         self.s.commit()
         self.pending_addendum_ids.append(rev.id)
         view = canonical_view(self.s, story)
-        full_text = story.summary + " " + story.body + " " + \
-            " ".join(view["addenda"]) + " " + args["content"]
+        full_text = _story_retrieved_value(
+            story.summary, story.body,
+            [*view["addenda"], args["content"]])
         self.retrieved[story.event_id] = (
             "story", full_text, {"status": "pending"})
         out = {**view, "pending_addenda": [args["content"]]}

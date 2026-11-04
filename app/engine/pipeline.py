@@ -654,30 +654,11 @@ class Pipeline:
                                     # lên trước, dedupe theo chunk_id.
                                     try:
                                         from .rag import (
+                                            find_thread_area,
                                             match_company_by_province)
-                                        from ..models import CustomerFact
-                                        # Khớp theo relation='location'
-                                        # chứ không theo tên predicate
-                                        # (predicate do model tự chọn:
-                                        # customer_location hay
-                                        # current_location đều gặp).
-                                        _loc = self.s.execute(
-                                            select(CustomerFact).where(
-                                                CustomerFact.thread_id
-                                                == thread.id,
-                                                CustomerFact.actor_id
-                                                == req.actor_id,
-                                                CustomerFact.relation
-                                                == "location",
-                                                CustomerFact.status
-                                                == "current")
-                                            .order_by(
-                                                CustomerFact.id.desc())
-                                            ).scalars().first()
-                                        if _loc is not None:
-                                            _area = (
-                                                _loc.value_normalized
-                                                or _loc.value_raw or "")
+                                        _area = find_thread_area(
+                                            self.s, thread.id, req.actor_id)
+                                        if _area:
                                             _prov = match_company_by_province(
                                                 self.s, _area, limit=3)
                                             _seen = {
