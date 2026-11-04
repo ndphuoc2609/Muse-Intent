@@ -3,53 +3,60 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Persona Dialogue — Sandbox</title>
 <style>
-/* Facebook post + comments mimicry. Tokens riêng cho trang này:
-   nền xám FB, card trắng, xanh FB cho action chính. Không gradient,
-   không glow. Font hệ thống như Facebook (Segoe UI/Helvetica/Arial)
-   là lựa chọn có chủ ý để giống Facebook, khác với aesthetic
-   Linear/Stripe mặc định của udemi. */
+/* Minimal refresh (2026-11-04, nguồn Lovable: PinPost, Note Taking App,
+   Reflection Journal): nền be-xám ấm, card trắng viền hairline (không
+   shadow), xanh chỉ dùng cho action chính, panel phụ thu gọn. Cấu trúc
+   post/comment kiểu Facebook giữ nguyên vì đó là mục đích mô phỏng.
+   Font hệ thống (Segoe UI/Helvetica/Arial) là lựa chọn có chủ ý để
+   giống Facebook, khác với aesthetic Linear/Stripe mặc định của udemi. */
 :root{
-  --fb-bg:#f0f2f5; --fb-card:#ffffff; --fb-text:#050505;
-  --fb-secondary:#65676b; --fb-blue:#1877f2; --fb-blue-hover:#166fe5;
-  --fb-hover:#f0f2f5; --fb-bubble:#f0f2f5; --fb-border:#ced0d4;
-  --fb-divider:#ced0d4; --fb-green:#45bd62; --fb-red:#f02849;
-  --fb-yellow:#f5c33b; --fb-orange:#e9710f;
-  --radius-card:8px; --radius-bubble:18px;
-  --shadow-card:0 1px 2px rgba(0,0,0,.1);
+  --fb-bg:#f7f6f3; --fb-card:#ffffff; --fb-text:#1a1917;
+  --fb-secondary:#6f6a63; --fb-blue:#166fe5; --fb-blue-hover:#1565d8;
+  --fb-hover:#f1efeb; --fb-bubble:#f1efeb; --fb-border:#e7e4de;
+  --fb-green:#067647; --fb-red:#c5221f;
+  --fb-yellow:#b98a00; --fb-orange:#a6703c;
+  --radius-card:12px; --radius-bubble:18px;
+  --shadow-card:none;
   --shadow-pop:0 2px 12px rgba(0,0,0,.2);
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--fb-bg);color:var(--fb-text);
-  font-family:"Segoe UI",Helvetica,Arial,sans-serif;font-size:15px;line-height:1.3333}
+  font-family:"Segoe UI",Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5}
 a{color:var(--fb-blue);text-decoration:none}
 a:hover{text-decoration:underline}
 button,input,select,textarea{font:inherit}
 button{cursor:pointer}
 button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--fb-blue);outline-offset:2px}
-/* Header kiểu Facebook: trắng, shadow nhẹ, mark xanh. */
-.fb-header{background:var(--fb-card);box-shadow:0 1px 4px rgba(0,0,0,.1);position:sticky;top:0;z-index:10}
-.fb-header-inner{max-width:680px;margin:0 auto;padding:8px 16px;display:flex;gap:12px;align-items:center;justify-content:space-between}
+/* Focus trên nút xanh: outline cùng màu nền sẽ tàng hình nên dùng
+   vòng trắng + vòng xanh ngoài (H1 review). */
+.btn:focus-visible,.send-btn:focus-visible{outline:2px solid #fff;box-shadow:0 0 0 4px var(--fb-blue)}
+/* Header minimal: không shadow, không mark xanh — chỉ wordmark +
+   dòng phụ xám, ngăn cách bằng hairline. */
+.fb-header{background:var(--fb-card);border-bottom:1px solid var(--fb-border);position:sticky;top:0;z-index:10}
+.fb-header-inner{max-width:680px;margin:0 auto;padding:12px 16px;display:flex;gap:12px;align-items:center;justify-content:space-between}
 .brand{display:flex;gap:10px;align-items:center}
-.mark{width:40px;height:40px;min-width:40px;background:var(--fb-blue);color:#fff;border-radius:50%;display:grid;place-items:center;font-size:24px;font-weight:700}
-.brand-name{font-size:17px;font-weight:700;line-height:1.2}
+.mark{display:none}
+.brand-name{font-size:17px;font-weight:700;line-height:1.4}
 .brand-sub{font-size:12px;color:var(--fb-secondary)}
 .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;background:var(--fb-hover);color:var(--fb-secondary);white-space:nowrap}
-.feed{max-width:680px;margin:0 auto;padding:16px}
-@media (max-width:700px){.feed{padding:12px 8px}}
-.notice{background:#fff8e1;border:1px solid #e2c87a;border-radius:var(--radius-card);padding:12px 16px;margin-bottom:12px;font-size:14px;line-height:1.5}
-.provider{background:var(--fb-card);border-radius:var(--radius-card);padding:12px 16px;margin-bottom:12px;box-shadow:var(--shadow-card);font-size:14px}
-.card{background:var(--fb-card);border-radius:var(--radius-card);padding:16px;margin-bottom:12px;box-shadow:var(--shadow-card)}
+.feed{max-width:680px;margin:0 auto;padding:24px 16px}
+@media (max-width:700px){.feed{padding:16px 12px}}
+.notice{background:var(--fb-card);border:1px solid var(--fb-border);border-radius:var(--radius-card);padding:12px 16px;margin-bottom:24px;font-size:14px;line-height:1.5}
+.provider{padding:0 0 12px;margin-bottom:24px;border-bottom:1px solid var(--fb-border);font-size:13px;color:var(--fb-secondary)}
+.card{background:var(--fb-card);border:1px solid var(--fb-border);border-radius:var(--radius-card);padding:20px;margin-bottom:24px;box-shadow:var(--shadow-card)}
 .card h2{font-size:17px;margin:0 0 4px}
+.card-summary{font-size:17px;font-weight:700;color:var(--fb-text);cursor:pointer;list-style-position:inside}
+.card-summary::marker{color:var(--fb-secondary)}
 .hint{color:var(--fb-secondary);font-size:13px;margin:0 0 12px;line-height:1.5}
 label{display:block;margin:12px 0 6px;font-weight:600;font-size:14px}
-input,select,textarea{width:100%;padding:9px 12px;border:1px solid var(--fb-border);border-radius:6px;background:#fff;color:var(--fb-text)}
+input,select,textarea{width:100%;padding:9px 12px;border:1px solid var(--fb-border);border-radius:8px;background:#fff;color:var(--fb-text)}
 textarea{resize:vertical}
-.btn{min-height:36px;padding:7px 16px;border-radius:6px;border:0;background:var(--fb-blue);color:#fff;font-weight:600;font-size:14px}
+.btn{min-height:36px;padding:7px 16px;border-radius:8px;border:0;background:var(--fb-blue);color:#fff;font-weight:600;font-size:14px}
 .btn:hover{background:var(--fb-blue-hover)}
-.btn:disabled{background:#c9ccd1;cursor:not-allowed}
-.btn.gray{background:#e4e6eb;color:var(--fb-text)}
-.btn.gray:hover{background:#d8dadf}
-.btn.gray:disabled{background:#e4e6eb;color:#bcc0c4;cursor:not-allowed}
+.btn:disabled{background:#d8d5cf;color:#a39e96;cursor:not-allowed}
+.btn.gray{background:#efede8;color:var(--fb-text)}
+.btn.gray:hover{background:#e7e4de}
+.btn.gray:disabled{background:#efede8;color:#a39e96;cursor:not-allowed}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .row .btn{margin-top:8px}
 .meta{color:var(--fb-secondary);font-size:13px;overflow-wrap:anywhere}
@@ -62,34 +69,34 @@ textarea{resize:vertical}
 .avatar.lg{width:40px;height:40px;font-size:17px}
 .avatar.sm{width:32px;height:32px;font-size:14px}
 .avatar.xs{width:28px;height:28px;font-size:12px}
-.persona-name{font-size:15px;font-weight:600;line-height:1.3}
+.persona-name{font-size:15px;font-weight:600;line-height:1.4}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .chip{background:var(--fb-hover);border-radius:999px;padding:3px 10px;font-size:13px}
 .chip b{font-weight:600}
 /* Post card kiểu Facebook. */
 .post-head{display:flex;gap:10px;align-items:flex-start}
-.post-name{font-size:15px;font-weight:600;line-height:1.3}
+.post-name{font-size:15px;font-weight:600;line-height:1.4}
 .post-time{font-size:13px;color:var(--fb-secondary)}
 .post-text{font-size:15px;line-height:1.5;margin:12px 0 4px;white-space:pre-wrap;overflow-wrap:anywhere}
 .post-vehicles{font-size:13px;color:var(--fb-secondary);margin:0 0 12px}
 .counts{display:flex;justify-content:space-between;align-items:center;padding:10px 0;color:var(--fb-secondary);font-size:14px;margin-top:12px}
 .counts-left{display:flex;align-items:center;gap:6px;min-width:0}
 .counts-emojis{font-size:14px;letter-spacing:1px}
-.actions{display:flex;border-top:1px solid var(--fb-divider);border-bottom:1px solid var(--fb-divider);padding:4px 0}
+.actions{display:flex;border-top:1px solid var(--fb-border);border-bottom:1px solid var(--fb-border);padding:4px 0}
 .action-btn{flex:1;min-height:36px;border:0;background:transparent;color:var(--fb-secondary);font-weight:600;font-size:14px;border-radius:6px;display:flex;align-items:center;justify-content:center;gap:6px}
 .action-btn:hover{background:var(--fb-hover)}
 .action-btn.active-like{color:var(--fb-blue)}
 /* Comments kiểu Facebook: avatar + bubble xám + actions dưới bubble. */
-.comments{display:flex;flex-direction:column;gap:14px;padding-top:14px}
+.comments{display:flex;flex-direction:column;gap:24px;padding-top:14px}
 .comment-row{display:flex;gap:8px;align-items:flex-start}
 .comment-body{flex:1;min-width:0}
 .bubble-wrap{position:relative}
 .bubble{background:var(--fb-bubble);border-radius:var(--radius-bubble);padding:8px 12px;overflow-wrap:anywhere}
 .bubble.review{background:#fdf0e6}
 .bubble.error{background:#fde8e8}
-.bubble-name{font-size:13px;font-weight:600;line-height:1.3}
-.bubble-text{font-size:15px;line-height:1.4;white-space:pre-wrap}
-.pill{position:absolute;left:12px;bottom:-11px;display:inline-flex;align-items:center;gap:3px;background:#fff;border:1px solid var(--fb-border);border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,.15);padding:2px 7px;font-size:13px;color:var(--fb-secondary);cursor:pointer}
+.bubble-name{font-size:13px;font-weight:600;line-height:1.4}
+.bubble-text{font-size:15px;line-height:1.5;white-space:pre-wrap}
+.pill{position:absolute;left:12px;bottom:-11px;display:inline-flex;align-items:center;gap:3px;background:#fff;border:1px solid var(--fb-border);border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,.08);padding:2px 7px;font-size:13px;color:var(--fb-secondary);cursor:pointer}
 .pill:hover{background:var(--fb-hover)}
 .comment-actions{display:flex;gap:12px;align-items:center;margin:16px 0 0 12px;font-size:13px;font-weight:600}
 .comment-actions .like-wrap{position:relative}
@@ -97,29 +104,29 @@ textarea{resize:vertical}
 .mini-btn:hover{text-decoration:underline}
 .mini-btn.liked{color:var(--fb-blue)}
 .mini-btn.loved{color:var(--fb-red)}
-.mini-btn.haha,.mini-btn.wow,.mini-btn.sad{color:#b98a00}
+.mini-btn.haha,.mini-btn.wow,.mini-btn.sad{color:var(--fb-yellow)}
 .mini-btn.angry{color:var(--fb-orange)}
 .comment-time{color:var(--fb-secondary);font-weight:400}
 .status{font-size:12px;font-weight:600}
 .status.sent{color:#067647} .status.review{color:#9a5b12} .status.error{color:#c5221f}
 /* Reaction picker: popup tròn kiểu Facebook. */
 .picker{display:none;position:absolute;bottom:100%;left:0;background:#fff;border-radius:999px;box-shadow:var(--shadow-pop);padding:4px;gap:2px;z-index:20;white-space:nowrap}
-.like-wrap:hover .picker,.like-wrap.open .picker{display:flex}
+.like-wrap:hover .picker,.like-wrap.open .picker,.like-wrap:focus-within .picker{display:flex}
 .picker button{border:0;background:transparent;font-size:26px;line-height:1;padding:4px;border-radius:50%;transition:transform .12s}
 .picker button:hover{transform:scale(1.3);background:var(--fb-hover)}
 .picker button:focus-visible{outline:2px solid var(--fb-blue)}
 /* Composer kiểu Facebook: avatar + ô bo tròn + nút gửi tròn xanh. */
 .composer{display:flex;gap:8px;align-items:flex-start;padding-top:14px}
-.composer textarea{flex:1;background:var(--fb-bubble);border:0;border-radius:20px;padding:8px 14px;resize:none}
-.composer textarea:disabled{background:#e4e6eb;color:#bcc0c4}
+.composer textarea{flex:1;background:#fff;border:1px solid var(--fb-border);border-radius:20px;padding:8px 14px;resize:none}
+.composer textarea:disabled{background:#efede8;color:#a39e96}
 .send-btn{width:36px;height:36px;min-width:36px;border-radius:50%;border:0;background:var(--fb-blue);color:#fff;font-size:17px;display:grid;place-items:center}
 .send-btn:hover{background:var(--fb-blue-hover)}
-.send-btn:disabled{background:#c9ccd1;cursor:not-allowed}
+.send-btn:disabled{background:#d8d5cf;cursor:not-allowed}
 .typing{color:var(--fb-secondary);font-size:13px;min-height:20px;margin:8px 0 0 40px}
 .empty{border:1px dashed var(--fb-border);border-radius:var(--radius-card);padding:20px;text-align:center;color:var(--fb-secondary);font-size:14px}
 details{margin-top:10px}
 details summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--fb-secondary)}
-pre{white-space:pre-wrap;word-break:break-word;background:#242526;color:#e4e6eb;padding:12px;border-radius:8px;font-size:12px;line-height:1.5;overflow:auto}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--fb-hover);color:var(--fb-text);padding:12px;border-radius:8px;font-size:12px;line-height:1.5;overflow:auto}
 .planner-item{background:var(--fb-hover);border-radius:8px;padding:10px 12px;margin-bottom:10px}
 .planner-item b{font-size:14px}
 .planner-meta{color:var(--fb-secondary);font-size:13px;line-height:1.5}
@@ -133,22 +140,22 @@ pre{white-space:pre-wrap;word-break:break-word;background:#242526;color:#e4e6eb;
 .footer{color:var(--fb-secondary);font-size:13px;line-height:1.6;padding:0 4px 24px}
 </style></head><body>
 <header class="fb-header"><div class="fb-header-inner">
-  <div class="brand"><div class="mark" aria-hidden="true">P</div><div>
+  <div class="brand"><div>
     <div class="brand-name">Persona Dialogue</div>
     <div class="brand-sub">Sandbox hội thoại theo persona</div>
   </div></div>
-  <div><span class="badge">Mô phỏng sandbox</span> <a href="/admin" style="font-size:14px;font-weight:600;margin-left:8px">Persona Admin</a></div>
+  <div><span class="badge">Mô phỏng sandbox</span> <a href="/admin" style="font-size:14px;font-weight:600;margin-left:8px;color:var(--fb-secondary)">Persona Admin</a></div>
 </div></header>
 
 <main class="feed">
   <p class="notice">⚠️ Persona dựa trên người dùng thật, nhưng đây là <b>mô phỏng trong sandbox</b> — người đang chat là AI, không phải chính người đó. Dữ kiện sản phẩm ở đây là <b>dữ liệu mẫu, không phải giá thực tế</b>. “Đã gửi qua FakeSender” khác với “Cần review”. Không có tích hợp Facebook/Meta ở giai đoạn này.</p>
   <p class="provider" id="providerBox">Đang kiểm tra provider…</p>
 
-  <section class="card" aria-labelledby="setupTitle">
-    <h2 id="setupTitle">Thiết lập</h2>
+  <details class="card" id="setupDetails" open>
+    <summary class="card-summary" id="setupTitle">Thiết lập</summary>
     <p class="hint">Chọn persona, seed dữ liệu mẫu, rồi tạo bài viết để bắt đầu bình luận.</p>
     <div class="row">
-      <button type="button" class="btn" id="seedBtn" onclick="seedAndLoad()">Seed persona mẫu</button>
+      <button type="button" class="btn gray" id="seedBtn" onclick="seedAndLoad()">Seed persona mẫu</button>
       <button type="button" class="btn gray" onclick="loadPersonas()">Tải lại danh sách</button>
     </div>
     <label for="persona">Persona</label>
@@ -160,7 +167,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#242526;color:#e4e6eb;
     <input id="vehicles" value="Hyundai Creta">
     <div class="row"><button type="button" class="btn" id="createBtn" onclick="createPost()">Đăng bài viết</button></div>
     <p class="meta" id="threadMeta">Chưa có bài viết</p>
-  </section>
+  </details>
 
   <article class="card" id="postCard" style="display:none" aria-label="Bài viết">
     <div class="post-head">
@@ -192,7 +199,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#242526;color:#e4e6eb;
       </select>
     </div>
     <div class="composer">
-      <div class="avatar sm" id="composerAvatar" style="background:#65676b" aria-hidden="true">K1</div>
+      <div class="avatar sm" id="composerAvatar" style="background:var(--fb-secondary)" aria-hidden="true">K1</div>
       <textarea id="comment" rows="1" placeholder="Viết bình luận..." disabled></textarea>
       <button type="button" class="send-btn" id="sendBtn" onclick="sendTurn()" disabled aria-label="Gửi bình luận">➤</button>
     </div>
@@ -205,18 +212,18 @@ pre{white-space:pre-wrap;word-break:break-word;background:#242526;color:#e4e6eb;
     </details>
   </article>
 
-  <section class="card" id="plannerCol" aria-labelledby="plannerTitle">
-    <h2 id="plannerTitle">Conversation Planner</h2>
-    <p class="hint">Định hướng của lượt vừa gửi: model hiểu gì, định trả lời theo hướng nào, có hỏi thêm không, và mỗi intent đến từ đâu. Đọc cột này thay vì mở JSON trace khi chỉ cần biết "nó định làm gì tiếp theo".</p>
+  <details class="card" id="plannerCol">
+    <summary class="card-summary" id="plannerTitle">Conversation Planner</summary>
+    <p class="hint">Định hướng của lượt vừa gửi: model hiểu gì, định trả lời theo hướng nào, có hỏi thêm không, và mỗi intent đến từ đâu. Đọc mục này thay vì mở JSON trace khi chỉ cần biết "nó định làm gì tiếp theo".</p>
     <div id="planner"><p class="meta">Chưa có lượt nào — gửi bình luận đầu tiên để xem planner.</p></div>
-  </section>
+  </details>
 
-  <section class="card" aria-labelledby="storiesTitle">
-    <h2 id="storiesTitle">Canonical stories của persona</h2>
+  <details class="card">
+    <summary class="card-summary" id="storiesTitle">Canonical stories của persona</summary>
     <p class="hint">Story đã lưu và addenda. Thu hồi chỉ đổi trạng thái, không xóa lịch sử.</p>
     <div class="row"><button type="button" class="btn gray" onclick="loadPersonaDetail()">Tải lại stories</button></div>
     <div id="stories" style="margin-top:12px"><p class="meta">Chưa tải stories.</p></div>
-  </section>
+  </details>
 
   <p class="footer">Để Luna thật trả lời thay vì bản mô phỏng: đặt <code>LLM_PROVIDER=openrouter</code>, <code>OPENROUTER_API_KEY</code> và <code>OPENROUTER_MODEL=openai/gpt-6-luna</code> vào file <code>.env</code> trên máy chủ rồi khởi động lại server — không nhập key vào giao diện này, không dán key vào chat.</p>
 </main>
@@ -231,10 +238,11 @@ let reacting = new Set();
 const EMOJIS = ["👍", "❤️", "😆", "😮", "😢", "😡"];
 const EMOJI_NAMES = {"👍": "Thích", "❤️": "Yêu thích", "😆": "Haha", "😮": "Wow", "😢": "Buồn", "😡": "Phẫn nộ"};
 const EMOJI_CLASS = {"👍": "liked", "❤️": "loved", "😆": "haha", "😮": "wow", "😢": "sad", "😡": "angry"};
-const AVATAR_COLORS = ["#1877f2", "#45bd62", "#f02849", "#f5c33b", "#36c5f0", "#e9710f"];
+const AVATAR_COLORS = ["#5b7fa6", "#5d8a6a", "#a65b5b", "#a68a3c", "#5b8aa6", "#a6703c"];
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function initials(name){return (name||'?').trim().split(/\s+/).slice(-2).map(w=>w[0]).join('').toUpperCase()}
 function avatarColor(name){let h=0; for (const ch of (name||'?')) h=(h*31 + ch.charCodeAt(0))>>>0; return AVATAR_COLORS[h % AVATAR_COLORS.length]}
+function shortId(id){return id && id.length > 12 ? id.slice(0, 8) + '…' : id}
 function actorLabel(id){return id === 'actor-2' ? 'Khách 2' : 'Khách 1'}
 function actorInitials(id){return id === 'actor-2' ? 'K2' : 'K1'}
 function currentActor(){return document.getElementById('actor').value}
@@ -297,7 +305,7 @@ async function loadPersonas() {
     return;
   }
   if (!list.length) { sel.innerHTML = '<option value="">— chưa có persona, bấm Seed —</option>'; return; }
-  sel.innerHTML = list.map(p => `<option value="${esc(p.id)}">${esc(p.display_name)} — ${esc(p.region)} (${esc(p.id)})</option>`).join('');
+  sel.innerHTML = list.map(p => `<option value="${esc(p.id)}" data-name="${esc(p.display_name)}">${esc(p.display_name)}${p.region ? ' — ' + esc(p.region) : ''} (${esc(p.id)})</option>`).join('');
   if (prev && list.some(pp => pp.id === prev)) sel.value = prev;
   loadPersonaDetail();
 }
@@ -320,23 +328,35 @@ document.addEventListener('change', (e) => {
 function personaById(id){
   const sel = document.getElementById('persona');
   const opt = sel.querySelector(`option[value="${CSS.escape(id)}"]`);
-  return opt ? opt.textContent.split(' — ')[0] : id;
+  if (!opt) return id;
+  return opt.dataset.name || opt.textContent.split(' — ')[0];
 }
+// Chống race: loadPersonaDetail được gọi từ cả change handler lẫn
+// loadPersonas/loadThreadFromHash, fetch cũ về sau không được ghi đè
+// profile của fetch mới hơn.
+let profileReq = 0;
 async function loadPersonaDetail() {
   const pid = document.getElementById('persona').value;
   if (!pid) return;
+  const myReq = ++profileReq;
   let d;
   try { d = await api('/personas/' + pid); }
   catch (e) {
+    if (myReq !== profileReq) return;
     document.getElementById('profile').innerHTML = '<p class="meta">Không tải được hồ sơ persona: ' + esc(e.message) + '</p>';
     return;
   }
+  if (myReq !== profileReq) return;
   if (d.detail) { document.getElementById('profile').innerHTML = '<p class="meta">' + esc(d.detail) + '</p>'; return; }
   const color = avatarColor(d.display_name);
+  const metaParts = [];
+  if (d.age) metaParts.push(esc(d.age) + ' tuổi');
+  if (d.region) metaParts.push(esc(d.region));
+  metaParts.push('stance: ' + esc(d.stance));
   document.getElementById('profile').innerHTML =
     `<div class="persona-head"><div class="avatar lg" style="background:${color}" aria-hidden="true">${esc(initials(d.display_name))}</div><div>
       <div class="persona-name">${esc(d.display_name)}</div>
-      <div class="meta">${d.age ? esc(d.age) + ' tuổi · ' : ''}${esc(d.region)} · stance: ${esc(d.stance)}</div>
+      <div class="meta">${metaParts.join(' · ')}</div>
     </div></div>` +
     `<div class="chips">${d.facts.map(f=>`<span class="chip"><b>${esc(f.fact_key)}</b> = ${esc(f.value)}</span>`).join('') || '<span class="meta">Chưa có fact.</span>'}</div>`;
   document.getElementById('stories').innerHTML = d.stories.length ? `<div class="story-grid">` + d.stories.map(s =>
@@ -431,9 +451,12 @@ async function createPost() {
   threadId = d.thread_id;
   postData = {personaName: personaById(pid), postText: d.post_text, vehicles: d.post_vehicle_models || []};
   lastTrace = null; lastReplayNote = null;
-  document.getElementById('threadMeta').textContent = 'Bài viết đã đăng: ' + threadId + ' — sửa ô trên không đổi bài đã đăng, bấm “Đăng bài viết” lại để tạo bài mới.';
+  document.getElementById('threadMeta').textContent = 'Bài viết đã đăng: ' + shortId(threadId) + ' — sửa ô trên không đổi bài đã đăng, bấm “Đăng bài viết” lại để tạo bài mới.';
   renderPostCard();
   await renderThread();
+  // Bài đã lên thì thu setup lại để feed làm focal point (M1 review).
+  const setupDetails = document.getElementById('setupDetails');
+  if (setupDetails) setupDetails.open = false;
   document.getElementById('comment').disabled = false;
   document.getElementById('sendBtn').disabled = false;
   document.getElementById('comment').focus();
@@ -442,8 +465,10 @@ function pickerHTML(mid){
   // Không dùng inline onclick có nội suy id: bind bằng addEventListener
   // trong bindCommentActions (esc đổi ' thành &#39; nhưng HTML parser
   // decode lại trước khi JS parse nên id chứa quote sẽ vỡ handler).
-  return `<div class="picker" role="menu" aria-label="Chọn cảm xúc">` + EMOJIS.map(e =>
-    `<button type="button" role="menuitem" title="${esc(EMOJI_NAMES[e])}" aria-label="${esc(EMOJI_NAMES[e])}" data-react-mid="${esc(mid)}" data-emoji="${e}">${e}</button>`).join('') + `</div>`;
+  // Không gắn role menu/menuitem: picker không hỗ trợ phím mũi tên
+  // như menu thật, để nút thường với aria-label cho đúng semantics.
+  return `<div class="picker">` + EMOJIS.map(e =>
+    `<button type="button" title="${esc(EMOJI_NAMES[e])}" aria-label="${esc(EMOJI_NAMES[e])}" data-react-mid="${esc(mid)}" data-emoji="${e}">${e}</button>`).join('') + `</div>`;
 }
 function togglePicker(mid, forceOpen){
   document.querySelectorAll('.like-wrap.open').forEach(w => { if (w.dataset.mid !== mid) w.classList.remove('open'); });
@@ -507,7 +532,7 @@ function renderComments(messages, reactions){
     const name = isPersona ? (postData ? postData.personaName : 'Persona') : actorLabel(m.actor_id || 'actor-1');
     const av = isPersona
       ? `<div class="avatar sm" style="background:${avatarColor(name)}" aria-hidden="true">${esc(initials(name))}</div>`
-      : `<div class="avatar sm" style="background:#65676b" aria-hidden="true">${esc(actorInitials(m.actor_id || 'actor-1'))}</div>`;
+      : `<div class="avatar sm" style="background:var(--fb-secondary)" aria-hidden="true">${esc(actorInitials(m.actor_id || 'actor-1'))}</div>`;
     const countsFor = counts[m.id] || {};
     const myEmoji = mine[m.id] || null;
     const statusLabel = isPersona ? (m.status === 'sent' ? 'Đã gửi qua FakeSender' : m.status === 'review' ? 'Cần review / handoff (chưa gửi)' : m.status === 'error' ? 'Lỗi' : m.status) : '';
@@ -548,6 +573,13 @@ async function renderThread(){
 async function react(mid, emoji){
   if (reacting.has(mid)) return;
   reacting.add(mid);
+  // Giữ focus: renderThread vẽ lại toàn bộ #chat nên nút vừa bấm sẽ
+  // bị hủy — chỉ khôi phục focus khi người dùng đang focus bằng bàn
+  // phím trong đúng comment đó (click chuột thì :focus-visible không
+  // hiện vòng nên không cần).
+  const focusedRow = document.activeElement && document.activeElement.closest
+    ? document.activeElement.closest('.comment-row') : null;
+  const restoreFocus = focusedRow && focusedRow.dataset.messageId === mid;
   document.querySelectorAll('.like-wrap.open').forEach(w => w.classList.remove('open'));
   try {
     // emoji null = bấm nút Thích: nếu đã react thì gỡ (target = emoji
@@ -563,7 +595,11 @@ async function react(mid, emoji){
     alert('Thả cảm xúc lỗi: ' + e.message);
   } finally {
     reacting.delete(mid);
-    renderThread();
+    await renderThread();
+    if (restoreFocus) {
+      const btn = document.querySelector(`.comment-row[data-message-id="${CSS.escape(mid)}"] [data-like-mid]`);
+      if (btn) btn.focus();
+    }
   }
 }
 const GOAL_LABELS = {answer_question:'Trả lời câu hỏi', share_experience:'Chia sẻ trải nghiệm', clarify:'Hỏi làm rõ', explore_need:'Khám phá nhu cầu', empathize:'Đồng cảm', stop:'Dừng', handoff:'Chuyển giao / cần review'};
@@ -667,7 +703,7 @@ function appendErrorRow(msg){
   const chat = document.getElementById('chat');
   const row = document.createElement('div');
   row.className = 'comment-row';
-  row.innerHTML = `<div class="avatar sm" style="background:#c5221f" aria-hidden="true">!</div><div class="comment-body"><div class="bubble error"><div class="bubble-name">Lỗi</div><div class="bubble-text">${esc(msg)}</div></div></div>`;
+  row.innerHTML = `<div class="avatar sm" style="background:var(--fb-red)" aria-hidden="true">!</div><div class="comment-body"><div class="bubble error"><div class="bubble-name">Lỗi</div><div class="bubble-text">${esc(msg)}</div></div></div>`;
   chat.appendChild(row);
 }
 // Composer tự giãn theo nội dung (Shift+Enter xuống dòng vẫn thấy đủ).
@@ -704,9 +740,11 @@ async function loadThreadFromHash(){
   postData = {personaName: name ? name.textContent : t.persona_id,
               postText: t.post_text, vehicles: t.post_vehicle_models || []};
   lastTrace = null; lastReplayNote = null;
-  document.getElementById('threadMeta').textContent = 'Bài viết đã mở từ link: ' + threadId;
+  document.getElementById('threadMeta').textContent = 'Bài viết đã mở từ link: ' + shortId(threadId);
   renderPostCard();
   await renderThread();
+  const setupDetails = document.getElementById('setupDetails');
+  if (setupDetails) setupDetails.open = false;
   document.getElementById('comment').disabled = false;
   document.getElementById('sendBtn').disabled = false;
 }
