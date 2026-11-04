@@ -90,6 +90,18 @@ def test_story_retrieved_value_dedupes_identical_summary_body(session):
     assert value.count("công viên") == 1
 
 
+def test_comparison_lead_question_rule_present():
+    # Feedback transcript 2 actor 2026-11-04: luot Khach 2 phan van
+    # Creta/Seltos ket chi bang loi khuyen lai thu, khong co cau hoi
+    # lay thong tin lead. Luat moi: ket bang 1 cau hoi mau/ban dang
+    # nghieng ve hon.
+    import re
+    from app.engine.runtime_prompt import CONVERSATION_POLICY
+    policy = re.sub(r"\s+", " ", CONVERSATION_POLICY)
+    assert "nghiêng về mẫu/bản nào hơn" in policy
+    assert "đừng kết lượt chỉ bằng lời khuyên lái thử" in policy
+
+
 def test_story_retrieved_value_keeps_distinct_parts(session):
     _story(session, "fix-story-distinct", "fix-story-distinct_mem_1",
            "Đi Đà Lạt cuối tuần", "Đường đèo sương mù dày đặc")
