@@ -32,6 +32,10 @@ from .typed_values import (
 TRANSACTION_PHRASES = [
     "đã đặt cọc", "đã giữ xe", "đã chốt xe", "nhân viên sẽ gọi",
     "nhân viên sẽ liên hệ", "đã thanh toán", "xe đã được giữ",
+    # Cam kết sale chắc chắn liên hệ/gọi — giọng hành chính, trái quy
+    # tắc "chỉ nói sẽ chuyển thông tin" của LEAD_CAPTURE (feedback
+    # transcript 2026-11-04: "Sale sẽ liên hệ theo thông tin em để lại").
+    "sale sẽ liên hệ", "sale sẽ gọi",
 ]
 PRIVATE_REQUEST_PHRASES = [
     "cho mình số điện thoại", "cho xin số điện thoại", "địa chỉ nhà của bạn",
@@ -284,6 +288,17 @@ def validate(final: dict, ctx: dict) -> list[str]:
                 "chung chung của lượt trước, chưa phải muốn dừng — KHÔNG "
                 "chốt hội thoại, hãy hỏi một câu CỤ THỂ về nhu cầu khách "
                 "đã nêu thay vì dừng ở đây")
+    # 2e. Câu dọn đường cho từ chối khi xin SĐT: "không tiện thì thôi"
+    # nói TRƯỚC khi khách từ chối là sai hoàn toàn (feedback transcript
+    # 2026-11-04) — việc dừng xin SĐT chỉ xảy ra SAU khi khách thực sự
+    # từ chối (bước 6 LEAD_CAPTURE). Chỉ bắt trong luồng lead (lúc xin
+    # SĐT), để câu mời nhắn riêng sau từ chối thật không bị chặn nhầm
+    # (câu đó không chứa "thì thôi").
+    if ctx.get("lead_capture") and "không tiện thì thôi" in low:
+        errors.append(
+            "preemptive_refusal_out: reply xin SĐT chứa 'không tiện thì "
+            "thôi' — CẤM nói trước câu cho phép từ chối; hỏi SĐT thẳng "
+            "mềm mỏng, chỉ dừng xin SĐT sau khi khách thực sự từ chối")
     # 3. Opt-out: không hỏi thêm, không gợi mở.
     if ctx.get("opted_out"):
         if final.get("followup_question"):

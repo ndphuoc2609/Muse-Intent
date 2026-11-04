@@ -17,7 +17,11 @@ TOOLS = [
             "một câu 'không' cho câu hỏi chung không được chọn goal stop "
             "khi need còn chưa khai thác. TRẦN: khai thác tối đa 1-2 câu, "
             "sau đó chuyển sang giới thiệu sale + xin SĐT (LEAD_CAPTURE); "
-            "khách từ chối SĐT thì mời nhắn riêng, không hỏi lại.",
+            "khách từ chối SĐT thì mời nhắn riêng, không hỏi lại. "
+            "Quy chiếu mẫu xe: bài viết chỉ nhắc một mẫu xe và khách "
+            "chưa nhắc mẫu nào khác thì bản/màu khách nhắc tới đều hiểu "
+            "là mẫu xe trong bài — không hỏi lại 'mẫu trong bài hay mẫu "
+            "khác'.",
             "parameters": {
                 "type": "object",
                 "properties": {

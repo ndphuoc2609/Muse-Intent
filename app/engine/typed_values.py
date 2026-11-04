@@ -215,3 +215,46 @@ def find_money(text: str) -> list[tuple[str, int]]:
         if v and all(v[0] != x[1] for x in out):
             out.append((m.group(0), v[0]))
     return out
+
+
+def normalize_vn_mobile(raw: str) -> str | None:
+    """Chuẩn hóa SĐT di động Việt Nam về dạng 0xxxxxxxxx, hoặc None nếu
+    không ra dạng đó. Chấp nhận khoảng trắng/dấu . - () và đầu số +84/84."""
+    digits = re.sub(r"[\s.\-()]", "", raw or "")
+    if digits.startswith("+84"):
+        digits = "0" + digits[3:]
+    elif len(digits) == 11 and digits.startswith("84"):
+        digits = "0" + digits[2:]
+    if not digits.isdigit():
+        return None
+    return digits
+
+
+def is_plausible_vn_mobile(raw: str) -> bool:
+    """SĐT di động Việt Nam có thật được không (chỉ kiểm tra hình thức,
+    không gọi tổng đài xác minh). Quy tắc bảo thủ để không chặn số thật:
+    - đúng 10 chữ số, đầu số di động hiện hành 03/05/07/08/09 (đầu 01x
+      đã chuyển đổi từ 2018 nên không còn hợp lệ);
+    - loại số giả hiển nhiên: toàn chữ số giống nhau, cả dãy tăng/giảm
+      dần đều (0123456789), hoặc phần thuê bao toàn chữ số giống nhau
+      (0900000000). Số đẹp dạng 0912345678 vẫn qua vì dãy không đơn
+      điệu toàn cục.
+    Dùng ở propose_customer_fact: số không đạt thì tool trả CONFLICT để
+    model hỏi lại khách kiểm tra số, thay vì lưu lead giả rồi xác nhận
+    chuyển cho sale (feedback transcript 2026-11-04)."""
+    digits = normalize_vn_mobile(raw)
+    if digits is None or len(digits) != 10 or not digits.startswith("0"):
+        return False
+    if digits[1] not in ("3", "5", "7", "8", "9"):
+        return False
+    if len(set(digits)) == 1:
+        return False
+    # Đơn điệu xét trên phần sau số 0 đầu: "0987654321" có bước nhảy
+    # 0->9 ở đầu nhưng phần còn lại giảm dần đều, vẫn là số giả.
+    sub = digits[1:]
+    diffs = [int(sub[i + 1]) - int(sub[i]) for i in range(len(sub) - 1)]
+    if all(d == 1 for d in diffs) or all(d == -1 for d in diffs):
+        return False
+    if len(set(digits[2:])) == 1:
+        return False
+    return True

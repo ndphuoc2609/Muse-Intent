@@ -14,6 +14,7 @@ from ..models import (CustomerFact, Persona, PersonaFact, PersonaStory,
                       ProductFact, StoryRevision)
 from ..schemas import ToolResult
 from .consistency import check_addendum, check_story
+from .typed_values import is_plausible_vn_mobile
 
 
 def _today() -> str:
@@ -487,6 +488,23 @@ class ToolExecutor:
             return ToolResult(status="CONFLICT", tool="propose_customer_fact",
                               reason="evidence không khớp message nào do "
                                      "server xác định trong thread này")
+        # SĐT khách đưa phải qua được kiểm tra hình thức di động Việt
+        # Nam, nếu không lead lưu xong cũng là lead giả và lượt xác nhận
+        # sẽ hứa chuyển cho sale một số không liên lạc được (feedback
+        # transcript 2026-11-04: "0123456789" được xác nhận chuyển như
+        # số thật). Trả CONFLICT để model còn trong vòng tool loop hỏi
+        # lại khách kiểm tra số, thay vì lưu rồi xác nhận.
+        if args.get("predicate") == "phone_number":
+            _phone = args.get("value_normalized") or args.get("value_raw") or ""
+            if not is_plausible_vn_mobile(_phone):
+                return ToolResult(status="CONFLICT",
+                                  tool="propose_customer_fact",
+                                  reason="SĐT này không hợp lệ (không đúng "
+                                         "định dạng di động Việt Nam hoặc "
+                                         "giống số giả như dãy số liên tiếp) "
+                                         "— đừng lưu, đừng xác nhận chuyển "
+                                         "cho sale; hãy hỏi lại khách kiểm "
+                                         "tra số")
         # Candidate pending: KHÔNG supersede fact cũ ngay. Supersede chỉ
         # xảy ra ở activate_pending() khi delivery thành công, và chỉ
         # khi cùng subject+predicate+relation (bố vs mẹ không ghi đè nhau).
