@@ -4,8 +4,10 @@
 <title>Persona Dialogue — Sandbox</title>
 <style>
 /* Minimal refresh (2026-11-04, nguồn Lovable: PinPost, Note Taking App,
-   Reflection Journal): nền be-xám ấm, card trắng viền hairline (không
-   shadow), xanh chỉ dùng cho action chính, panel phụ thu gọn. Cấu trúc
+   Reflection Journal) + workspace layout (2026-11-04, pattern Linear-app
+   từ awesome-design-md: sidebar + feed + inspector, near-monochrome,
+   whitespace kiểu Stripe, token kiểu shadcn): nền be-xám ấm, card trắng
+   viền hairline (không shadow), xanh chỉ dùng cho action chính. Cấu trúc
    post/comment kiểu Facebook giữ nguyên vì đó là mục đích mô phỏng.
    Font hệ thống (Segoe UI/Helvetica/Arial) là lựa chọn có chủ ý để
    giống Facebook, khác với aesthetic Linear/Stripe mặc định của udemi. */
@@ -33,14 +35,38 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 /* Header minimal: không shadow, không mark xanh — chỉ wordmark +
    dòng phụ xám, ngăn cách bằng hairline. */
 .fb-header{background:var(--fb-card);border-bottom:1px solid var(--fb-border);position:sticky;top:0;z-index:10}
-.fb-header-inner{max-width:680px;margin:0 auto;padding:12px 16px;display:flex;gap:12px;align-items:center;justify-content:space-between}
+.fb-header-inner{max-width:1560px;margin:0 auto;padding:12px 24px;display:flex;gap:12px;align-items:center;justify-content:space-between}
 .brand{display:flex;gap:10px;align-items:center}
 .mark{display:none}
 .brand-name{font-size:17px;font-weight:700;line-height:1.4}
 .brand-sub{font-size:12px;color:var(--fb-secondary)}
 .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;background:var(--fb-hover);color:var(--fb-secondary);white-space:nowrap}
-.feed{max-width:680px;margin:0 auto;padding:24px 16px}
+.feed{max-width:1560px;margin:0 auto;padding:24px}
 @media (max-width:700px){.feed{padding:16px 12px}}
+/* Workspace layout: sidebar trái (thiết lập) + feed giữa + inspector
+   phải (planner/stories). Màn hình hẹp thu về 2 cột rồi 1 cột; panel
+   phải mở sẵn chỉ khi đủ rộng (xem JS cuối file). */
+.layout{display:grid;grid-template-columns:320px minmax(0,1fr) 360px;gap:24px;align-items:start}
+.layout .card{margin-bottom:0}
+.layout details.card{margin-top:0}
+.col-side,.col-right{position:sticky;top:70px;display:flex;flex-direction:column;gap:24px;min-width:0}
+.col-main{min-width:0}
+@media (max-width:1280px){
+  .layout{grid-template-columns:300px minmax(0,1fr)}
+  .col-right{grid-column:1/-1;position:static;display:grid;grid-template-columns:1fr 1fr;gap:24px}
+}
+@media (max-width:900px){
+  .layout{grid-template-columns:1fr}
+  .col-side{position:static}
+  .col-right{position:static;display:flex}
+}
+@media (min-width:1281px){
+  /* Reviewer M1: cột sticky không max-height sẽ kẹt đáy khi dài hơn
+     viewport — cho cuộn riêng trong cột thay vì kẹt. */
+  .col-side,.col-right{max-height:calc(100vh - 90px);overflow-y:auto}
+  /* Reviewer M2: story grid 2 cột trong inspector 360px quá chật. */
+  .col-right .story-grid{grid-template-columns:1fr}
+}
 .notice{background:var(--fb-card);border:1px solid var(--fb-border);border-radius:var(--radius-card);padding:12px 16px;margin-bottom:24px;font-size:14px;line-height:1.5}
 .provider{padding:0 0 12px;margin-bottom:24px;border-bottom:1px solid var(--fb-border);font-size:13px;color:var(--fb-secondary)}
 .card{background:var(--fb-card);border:1px solid var(--fb-border);border-radius:var(--radius-card);padding:20px;margin-bottom:24px;box-shadow:var(--shadow-card)}
@@ -137,7 +163,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--fb-hover);color:
 .story{background:var(--fb-hover);border-radius:8px;padding:14px;overflow-wrap:anywhere}
 .story h3{font-size:15px;margin:0 0 6px}
 .danger-text{background:transparent;color:#c5221f;border:1px solid #e8b4b0;padding:7px 12px;border-radius:6px;font-size:13px;font-weight:600}
-.footer{color:var(--fb-secondary);font-size:13px;line-height:1.6;padding:0 4px 24px}
+.footer{color:var(--fb-secondary);font-size:13px;line-height:1.6;padding:0 4px 24px;margin-top:24px}
 </style></head><body>
 <header class="fb-header"><div class="fb-header-inner">
   <div class="brand"><div>
@@ -151,6 +177,8 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--fb-hover);color:
   <p class="notice">⚠️ Persona dựa trên người dùng thật, nhưng đây là <b>mô phỏng trong sandbox</b> — người đang chat là AI, không phải chính người đó. Dữ kiện sản phẩm ở đây là <b>dữ liệu mẫu, không phải giá thực tế</b>. “Đã gửi qua FakeSender” khác với “Cần review”. Không có tích hợp Facebook/Meta ở giai đoạn này.</p>
   <p class="provider" id="providerBox">Đang kiểm tra provider…</p>
 
+  <div class="layout">
+  <aside class="col-side">
   <details class="card" id="setupDetails" open>
     <summary class="card-summary" id="setupTitle">Thiết lập</summary>
     <p class="hint">Chọn persona, seed dữ liệu mẫu, rồi tạo bài viết để bắt đầu bình luận.</p>
@@ -168,7 +196,9 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--fb-hover);color:
     <div class="row"><button type="button" class="btn" id="createBtn" onclick="createPost()">Đăng bài viết</button></div>
     <p class="meta" id="threadMeta">Chưa có bài viết</p>
   </details>
-
+  </aside>
+  <div class="col-main">
+  <div class="empty" id="postEmpty">Chưa có bài viết — tạo bài ở mục Thiết lập để bắt đầu bình luận.</div>
   <article class="card" id="postCard" style="display:none" aria-label="Bài viết">
     <div class="post-head">
       <div class="avatar lg" id="postAvatar" aria-hidden="true">?</div>
@@ -211,19 +241,22 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--fb-hover);color:
       <p class="meta" id="commentHint">Hãy tạo bài viết ở trên trước, rồi mới bình luận được. Mẹo: Enter để gửi, Shift + Enter để xuống dòng.</p>
     </details>
   </article>
-
+  </div>
+  <aside class="col-right">
   <details class="card" id="plannerCol">
     <summary class="card-summary" id="plannerTitle">Conversation Planner</summary>
     <p class="hint">Định hướng của lượt vừa gửi: model hiểu gì, định trả lời theo hướng nào, có hỏi thêm không, và mỗi intent đến từ đâu. Đọc mục này thay vì mở JSON trace khi chỉ cần biết "nó định làm gì tiếp theo".</p>
     <div id="planner"><p class="meta">Chưa có lượt nào — gửi bình luận đầu tiên để xem planner.</p></div>
   </details>
 
-  <details class="card">
+  <details class="card" id="storiesCol">
     <summary class="card-summary" id="storiesTitle">Canonical stories của persona</summary>
     <p class="hint">Story đã lưu và addenda. Thu hồi chỉ đổi trạng thái, không xóa lịch sử.</p>
     <div class="row"><button type="button" class="btn gray" onclick="loadPersonaDetail()">Tải lại stories</button></div>
     <div id="stories" style="margin-top:12px"><p class="meta">Chưa tải stories.</p></div>
   </details>
+  </aside>
+  </div>
 
   <p class="footer">Để Luna thật trả lời thay vì bản mô phỏng: đặt <code>LLM_PROVIDER=openrouter</code>, <code>OPENROUTER_API_KEY</code> và <code>OPENROUTER_MODEL=openai/gpt-6-luna</code> vào file <code>.env</code> trên máy chủ rồi khởi động lại server — không nhập key vào giao diện này, không dán key vào chat.</p>
 </main>
@@ -314,6 +347,7 @@ document.addEventListener('change', (e) => {
     if (threadId) {
       threadId = null; postData = null; lastTrace = null; lastReplayNote = null;
       document.getElementById('postCard').style.display = 'none';
+      document.getElementById('postEmpty').style.display = 'block';
       document.getElementById('threadMeta').textContent = 'Đã đổi persona — hãy tạo bài viết mới trước khi bình luận.';
       document.getElementById('comment').disabled = true;
       document.getElementById('sendBtn').disabled = true;
@@ -381,6 +415,8 @@ function renderPostCard(){
   if (!postData) return;
   const card = document.getElementById('postCard');
   card.style.display = 'block';
+  const pe = document.getElementById('postEmpty');
+  if (pe) pe.style.display = 'none';
   const av = document.getElementById('postAvatar');
   av.textContent = initials(postData.personaName);
   av.style.background = avatarColor(postData.personaName);
@@ -748,6 +784,17 @@ async function loadThreadFromHash(){
   document.getElementById('comment').disabled = false;
   document.getElementById('sendBtn').disabled = false;
 }
+// Workspace layout: trạng thái panel phải đi theo breakpoint (reviewer
+// M3) — chỉ đồng bộ khi VƯỢT ngưỡng, thao tác đóng/mở tay giữa các
+// lần vượt ngưỡng vẫn được tôn trọng.
+const wideLayout = window.matchMedia('(min-width: 1281px)');
+function syncInspectorPanels() {
+  document.getElementById('plannerCol').open = wideLayout.matches;
+  const storiesCol = document.getElementById('storiesCol');
+  if (storiesCol) storiesCol.open = wideLayout.matches;
+}
+syncInspectorPanels();
+wideLayout.addEventListener('change', syncInspectorPanels);
 checkProvider();
 loadPersonas().then(loadThreadFromHash);
 </script></body></html>
