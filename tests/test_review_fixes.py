@@ -28,15 +28,18 @@ from tests.conftest import turn
 
 
 class _PlanFinalStub:
-    """Stub: call 1 -> plan_turn (kèm plan_extra), call 2 -> final."""
+    """Stub: call 1 -> plan_turn (kèm plan_extra), call 2+ -> final."""
 
     def __init__(self, final_text, plan_extra=None, goal="answer_question",
-                 final_goal="answer_question"):
+                 final_goal="answer_question", followup_question=None,
+                 followup_key=None):
         self.calls = 0
         self.final_text = final_text
         self.plan_extra = plan_extra or {}
         self.goal = goal
         self.final_goal = final_goal
+        self.followup_question = followup_question
+        self.followup_key = followup_key
 
     def chat(self, messages, tools):
         from app.providers.base import ProviderResult, ToolCall
@@ -49,10 +52,14 @@ class _PlanFinalStub:
             return ProviderResult(tool_calls=[ToolCall(name="plan_turn",
                                                        arguments=args)],
                                   usage={"cost_usd": 0.0, "http_attempts": 0})
+        args = {"text": self.final_text, "claims": [],
+                "goal": self.final_goal}
+        if self.followup_question is not None:
+            args["followup_question"] = self.followup_question
+        if self.followup_key is not None:
+            args["followup_key"] = self.followup_key
         return ProviderResult(
-            tool_calls=[ToolCall(name="submit_final_reply", arguments={
-                "text": self.final_text, "claims": [],
-                "goal": self.final_goal})],
+            tool_calls=[ToolCall(name="submit_final_reply", arguments=args)],
             usage={"cost_usd": 0.0, "http_attempts": 0})
 
 
@@ -204,6 +211,59 @@ def test_lead_opt_out_writes_refused(session):
     turn(p2, "Dừng lại đi, đừng nhắn nữa", thread_id=tid)
     row = _lead_row(session, tid)
     assert row is not None and row.status == "refused"
+
+
+def test_lead_signal_does_not_leak_across_actors(session):
+    # A có tín hiệu mua -> latch của A bật; B (chưa có terminal state)
+    # vẫn không bị bật lead chỉ vì chung thread với A.
+    p1 = Pipeline(session, _PlanFinalStub("Mình thấy Creta đi phố ổn."),
+                  FakeSender())
+    r1 = turn(p1, "Em đang tính mua Creta, bác tư vấn giúp")
+    assert r1.status == "sent"
+    tid = r1.thread_id
+    # B hỏi trung tính + final xin SĐT: latch B tắt -> private_request.
+    p2 = Pipeline(session, _PlanFinalStub("Cho mình số điện thoại nhé"),
+                  FakeSender())
+    r2 = turn(p2, "Bác đi Creta lâu chưa?", thread_id=tid, actor="actor-2")
+    assert r2.status == "review"
+    assert any("private_request" in e for e in r2.validator_errors)
+    # Control: A hỏi trung tính + final xin SĐT: latch A bật từ lịch sử
+    # của chính A -> sent.
+    p3 = Pipeline(session, _PlanFinalStub("Cho mình số điện thoại nhé"),
+                  FakeSender())
+    r3 = turn(p3, "Bác kể chuyện đi chơi đi", thread_id=tid)
+    assert r3.status == "sent"
+
+
+def test_declined_same_turn_blocks_reask_in_pipeline(session):
+    # Lượt 1: hỏi SĐT (followup_key phone) -> QuestionState pending.
+    p1 = Pipeline(session, _PlanFinalStub(
+        "Mình thấy Creta đi phố ổn.",
+        followup_question="Cho mình số điện thoại nhé",
+        followup_key="phone"), FakeSender())
+    r1 = turn(p1, "Em đang tính mua Creta, bác tư vấn giúp")
+    assert r1.status == "sent"
+    tid = r1.thread_id
+    q = session.execute(
+        select(QuestionState).where(
+            QuestionState.thread_id == tid,
+            QuestionState.actor_id == "actor-1",
+            QuestionState.question_key == "phone")).scalars().first()
+    assert q is not None and q.status == "pending"
+    # Lượt 2: khách từ chối SĐT, model vẫn hỏi lại cùng key trong reply
+    # cùng lượt -> validator phải chặn ngay (không chờ ghi QuestionState).
+    p2 = Pipeline(session, _PlanFinalStub(
+        "Mình hiểu mà, không sao đâu.",
+        plan_extra={"declined_question_keys": ["phone"]},
+        followup_question="Cho mình số điện thoại nhé",
+        followup_key="phone"), FakeSender())
+    r2 = turn(p2, "Không tiện cho số đâu, để mình tự liên hệ sau",
+              thread_id=tid)
+    assert r2.status == "review"
+    assert any("refused_question" in e for e in r2.validator_errors)
+    # QuestionState phone đã được ghi declined dù lượt review.
+    session.refresh(q)
+    assert q.status == "declined"
 
 
 # --- 4. Negation guard ---

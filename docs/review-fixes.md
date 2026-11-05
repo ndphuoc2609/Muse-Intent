@@ -109,3 +109,38 @@ planner mới); hai việc lớn còn lại xem cuối file.
   tool dữ liệu có cấu trúc thì gọi lại được).
 - Phân rã claim story theo đối tượng/thuộc tính/giá trị/thời gian
   (thay cho guard phủ định + overlap token hiện tại).
+
+## Sửa thêm trước merge (theo review diff dfb27d8, 2026-11-05)
+
+Hai regression do Phước đọc diff chỉ ra, đều nằm trong `pipeline.py`:
+
+- `_signal_history` lọc theo actor: trước đây xét message của mọi actor
+  trong thread nên tín hiệu mua của A bật lead cho B dù LeadState đã
+  riêng từng actor. Nay thêm `m.actor_id == req.actor_id`. Test toàn
+  pipeline: A có tín hiệu mua nhưng B hỏi trung tính + final xin SĐT
+  vẫn bị `private_request` (review), còn A hỏi trung tính + final xin
+  SĐT thì sent (latch của chính A).
+- `refused_keys` hợp nhất declined của lượt hiện tại trước validation:
+  trước đây validator chỉ dùng `declined_keys` nạp từ đầu lượt, còn
+  `planner.declined_question_keys` chỉ được ghi sau vòng repair (ở
+  `_update_questions`) nên khách vừa từ chối SĐT mà reply cùng lượt hỏi
+  lại cùng key vẫn qua. Nay `refused = declined_cũ ∪ declined_planner`
+  trước vòng validator + repair. Test toàn pipeline: lượt 1 hỏi SĐT
+  (followup_key phone, pending); lượt 2 khách từ chối + model hỏi lại
+  cùng key -> review với `refused_question`, và QuestionState phone
+  vẫn được ghi declined dù lượt review.
+
+## Giới hạn phạm vi batch (hiểu đúng, không nói quá)
+
+- SHA chỉ phát hiện lệch phiên bản, chưa ngăn phục vụ chunk stale:
+  retrieval vẫn phục vụ chunk cũ kèm cờ stale; độ tươi của chunk đại
+  lý cũng chưa được kiểm chứng lúc runtime. "Đồng bộ index" mới hoàn
+  thành một phần (phát hiện + purge + trạng thái), chưa phải chặn
+  phục vụ dữ liệu cũ.
+- Guard phủ định vẫn là heuristic: cửa sổ 2 token giảm một false
+  positive (mem_3), chưa bảo đảm đúng nghĩa khi nguồn có nhiều mệnh
+  đề hoặc phủ định nằm xa động từ.
+- Lọc evidence theo actor chỉ sửa đúng ở tầng truy vấn: evidence xuất
+  hiện trong lời khách chưa chứng minh giá trị đề xuất được suy ra đúng
+  từ evidence đó (suy luận từ evidence ra value vẫn là việc của model,
+  chưa có kiểm tra độc lập).

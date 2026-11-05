@@ -363,8 +363,13 @@ class Pipeline:
         from .rag import has_lead_signal as _has_lead_signal
         from ..models import LeadState as _LeadState
         _signal_current = _has_lead_signal(req.text)
+        # Lịch sử CHỈ tính message của đúng actor này: tín hiệu mua của
+        # A không được bật lead cho B (thread đa actor) chỉ vì B chưa có
+        # trạng thái kết thúc — LeadState riêng từng actor mà latch lịch
+        # sử không lọc actor thì coi như chưa riêng.
         _signal_history = any(
-            m.role == "user" and _has_lead_signal(m.text or "")
+            m.role == "user" and m.actor_id == req.actor_id
+            and _has_lead_signal(m.text or "")
             for m in history)
         _lead_terminal = self.s.execute(
             select(_LeadState).where(
@@ -851,7 +856,12 @@ class Pipeline:
         opted_out = planner.goal == "stop" or any(
             i.type == "opt_out" for i in planner.intents)
         asked_ai = any(i.type == "ai_identity" for i in planner.intents)
-        refused = declined_keys
+        # declined của lượt HIỆN TẠI phải có mặt trước validation, không
+        # chờ _update_questions (chạy sau vòng repair): nếu không, khách
+        # vừa từ chối SĐT mà reply cùng lượt hỏi lại cùng key thì
+        # validator vẫn cho qua vì refused_keys mới chỉ có declined cũ.
+        refused = sorted(set(declined_keys)
+                         | set(planner.declined_question_keys or []))
         validator_errors: list[str] = []
         # Câu persona gần nhất trước lượt này — để validator bắt lỗi
         # chốt sớm khi khách chỉ nói "không" với câu hỏi chung.
