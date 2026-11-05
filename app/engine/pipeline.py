@@ -355,13 +355,26 @@ class Pipeline:
         # hiệu quan tâm mua xe / hỏi đại lý / liên hệ. Dùng cho cả
         # COMPANY_EVIDENCE và validator (cho phép hỏi SĐT trong luồng
         # lead, vẫn cấm hỏi địa chỉ nhà).
+        # Trạng thái kết thúc lead (LeadState) chỉ khóa latch từ LỊCH SỬ:
+        # tín hiệu mua mới trong lượt hiện tại vẫn tính (và cuối lượt sẽ
+        # mở lại trạng thái cũ nếu planner không phán quyết terminal mới).
+        # Nhờ vậy cuộc trò chuyện không bị giữ mãi trong mục tiêu thu lead
+        # sau khi khách đã từ chối / đổi chủ đề / kết thúc luồng.
         from .rag import has_lead_signal as _has_lead_signal
-        _lead_capture = _has_lead_signal(req.text) or any(
+        from ..models import LeadState as _LeadState
+        _signal_current = _has_lead_signal(req.text)
+        _signal_history = any(
             m.role == "user" and _has_lead_signal(m.text or "")
             for m in history)
-        # Load cả pending và declined: query cũ chỉ lấy pending rồi
-        # kiểm tra status==declined trong danh sách pending nên
-        # refused_keys luôn rỗng — câu từ chối bị mất khỏi context.
+        _lead_terminal = self.s.execute(
+            select(_LeadState).where(
+                _LeadState.thread_id == thread.id,
+                _LeadState.actor_id == req.actor_id)).scalars().first()
+        _lead_capture = _signal_current or (
+            _signal_history and _lead_terminal is None)
+        # Load cả pending, declined và answered theo (thread, actor).
+        # declined_keys nuôi validator §4 (cấm hỏi lại key khách đã từ
+        # chối) — trước đây luôn rỗng vì không có code nào ghi declined.
         all_qs = self.s.execute(
             select(QuestionState).where(
                 QuestionState.thread_id == thread.id,
@@ -477,6 +490,13 @@ class Pipeline:
         trace_rag_error: str | None = None
         trace_company_evidence: list[dict] = []
         trace_company_error: str | None = None
+        # Trạng thái đồng bộ index (xem rag.index_status): tính 1 lần mỗi
+        # lượt trong khối server retrieval, đưa vào trace để UI thấy
+        # index đang ready/stale/unavailable/unknown thay vì lặng lẽ bỏ qua.
+        # Lượt không chạy retrieval (gate skip, lỗi trước plan) giữ not_run.
+        rag_status_info: dict = {"status": "not_run", "chunk_count": 0,
+                                 "persona_sha": None,
+                                 "seed_persona_sha": None}
         planner: Planner | None = None
         final: dict | None = None
         stop_reason: str | None = None
@@ -593,6 +613,11 @@ class Pipeline:
                     # message mới làm Fake mất context cũ).
                     if not getattr(self, "_server_retrieval_done", False):
                         self._server_retrieval_done = True
+                        try:
+                            from .rag import index_status as _index_status
+                            rag_status_info = _index_status(self.s)
+                        except Exception:
+                            pass
                         try:
                             from .retrieval import (
                                 derive_wanted_tags, log_retrieval,
@@ -796,6 +821,10 @@ class Pipeline:
             "retrieval_evidence": trace_retrieval,
             "rag_evidence": trace_rag_evidence,
             "rag_error": trace_rag_error,
+            "rag_status": rag_status_info["status"],
+            "rag_chunk_count": rag_status_info["chunk_count"],
+            "rag_persona_sha": rag_status_info["persona_sha"],
+            "rag_seed_persona_sha": rag_status_info["seed_persona_sha"],
             "company_evidence": trace_company_evidence,
             "company_error": trace_company_error,
         }
@@ -912,6 +941,36 @@ class Pipeline:
         # pending -> redirected (lỗi cũ làm mất câu hỏi đang chờ).
         self._update_questions(thread.id, req.actor_id, planner, user_msg.id,
                                pending_qs)
+        # --- 5b. Trạng thái kết thúc lead (xem LeadState).
+        # Thứ tự ưu tiên: opt-out (dừng toàn cuộc trò chuyện) -> refused;
+        # planner phán quyết terminal mới -> giá trị đó; tín hiệu mua mới
+        # trong lượt này mà không có phán quyết terminal mới -> xóa trạng
+        # thái cũ (mở lại). Chạy cả ở lượt review/handoff (phán quyết của
+        # planner về cuộc trò chuyện vẫn đúng dù reply chưa gửi); lượt
+        # lỗi không có final thì bỏ qua.
+        from ..models import LeadState as _LS2
+        _ls_row = self.s.execute(
+            select(_LS2).where(
+                _LS2.thread_id == thread.id,
+                _LS2.actor_id == req.actor_id)).scalars().first()
+        if opted_out:
+            _ls_status = "refused"
+        elif planner.lead_outcome in ("refused", "topic_changed", "ended"):
+            _ls_status = planner.lead_outcome
+        else:
+            _ls_status = None
+        if _ls_status is not None:
+            if _ls_row is None:
+                self.s.add(_LS2(thread_id=thread.id, actor_id=req.actor_id,
+                                status=_ls_status))
+            elif _ls_row.status != _ls_status:
+                _ls_row.status = _ls_status
+            self.s.commit()
+        elif _signal_current and _ls_row is not None:
+            # Tín hiệu mua mới, planner không phán quyết terminal mới:
+            # khách quay lại ý mua nên trạng thái kết thúc cũ hết hiệu lực.
+            self.s.delete(_ls_row)
+            self.s.commit()
         # Followup key fallback (không rớt câu hỏi chỉ vì thiếu key).
         if final.get("followup_question") and not final.get("followup_key"):
             final["followup_key"] = "followup_question"
@@ -1041,15 +1100,22 @@ class Pipeline:
 
     def _update_questions(self, thread_id, actor_id, planner, user_msg_id,
                           pending_qs):
-        # Chỉ ANSWERED khi planner nêu answered_question_keys. Engine
-        # không tự đoán từ keyword đơn lẻ, và không tự đổi pending ->
+        # Chỉ ANSWERED khi planner nêu answered_question_keys, và chỉ
+        # DECLINED khi planner nêu declined_question_keys. Engine không
+        # tự đoán từ keyword đơn lẻ, và không tự đổi pending ->
         # redirected chỉ vì lượt này nói sang chủ đề khác: câu hỏi cũ
         # vẫn pending để model quyết định có quay lại hay không, và
         # không bị mất chỉ vì một lượt chuyển chủ đề.
+        # Một key nằm cả hai danh sách là mâu thuẫn của planner — ANSWERED
+        # thắng vì đã có câu trả lời trong lượt này.
         answered = set(planner.answered_question_keys or [])
+        declined = set(planner.declined_question_keys or [])
         for q in pending_qs:
             if q.question_key in answered:
                 q.status = "answered"
                 q.answered_by_message_id = user_msg_id
+                q.answer_field = q.question_key
+            elif q.question_key in declined:
+                q.status = "declined"
                 q.answer_field = q.question_key
         self.s.commit()

@@ -261,6 +261,43 @@ def load_index_meta(session) -> dict:
     return out
 
 
+def sha_bytes(data: bytes) -> str:
+    """SHA256 hex của bytes file nguồn (personas.json / dealers.json)."""
+    import hashlib
+    return hashlib.sha256(data).hexdigest()
+
+
+def index_status(session) -> dict:
+    """Trạng thái đồng bộ index so với lần seed mới nhất.
+
+    - unavailable: chưa có meta hoặc không còn chunk nào (retrieval bỏ qua).
+    - unknown: build/seed viết trước khi có versioning (thiếu persona_sha
+      hoặc seed_persona_sha) — không chứng minh được tươi/cũ.
+    - stale: persona_sha lúc build != seed_persona_sha lúc seed mới nhất
+      (dữ liệu persona đổi sau lần build cuối — cần build lại).
+    - ready: khớp nhau và còn chunk.
+    Trạng thái này chỉ bao phủ corpus persona: runtime không đọc
+    dealers.json nên độ tươi của chunk đại lý không kiểm chứng được ở
+    đây — chunk đại lý chỉ tươi lại sau mỗi lần build.
+    """
+    from sqlalchemy import func
+    meta = load_index_meta(session)
+    count = session.execute(
+        select(func.count()).select_from(RagChunk)).scalar() or 0
+    persona_sha = meta.get("persona_sha")
+    seed_sha = meta.get("seed_persona_sha")
+    if not meta or count == 0:
+        status = "unavailable"
+    elif not persona_sha or not seed_sha:
+        status = "unknown"
+    elif persona_sha != seed_sha:
+        status = "stale"
+    else:
+        status = "ready"
+    return {"status": status, "chunk_count": count,
+            "persona_sha": persona_sha, "seed_persona_sha": seed_sha}
+
+
 def retrieve_chunks(session, persona_id: str, query_vector,
                     limit: int = DEFAULT_LIMIT,
                     threshold: float = 0.15) -> list[dict]:

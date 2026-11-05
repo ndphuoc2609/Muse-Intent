@@ -65,8 +65,8 @@ from .models import (
     Actor, CustomerFact, Delivery, EnrichmentDraft, Message,
     Persona, PersonaCategory, PersonaFact, PersonaPerspective,
     PersonaProfile, PersonaStory, PersonaStyleGuide, ProductFact,
-    QuestionState, RetrievalLog, StoryLink, StoryRevision, StoryTold,
-    Thread, TurnIdempotency, TagAssignment,
+    QuestionState, RagChunk, RagIndexMeta, RetrievalLog, StoryLink,
+    StoryRevision, StoryTold, Thread, TurnIdempotency, TagAssignment,
 )
 
 _DATA_PATH = Path(__file__).resolve().parents[1] / "data" / "personas.json"
@@ -252,6 +252,12 @@ def _purge_removed(session, keep_ids: set[str]) -> list[str]:
             PersonaStyleGuide.persona_id == pid))
         session.execute(delete(PersonaCategory).where(
             PersonaCategory.persona_id == pid))
+        # Chunk RAG phải đi trước khi xóa persona (FK persona_id): seed
+        # trước đây không xóa chunk nên persona bị purge vẫn để lại chunk
+        # cũ trong index. Chunk company (persona_id NULL) không bị ảnh
+        # hưởng vì không gắn với persona nào.
+        session.execute(delete(RagChunk).where(
+            RagChunk.persona_id == pid))
         session.delete(persona)
         removed.append(pid)
     return removed
@@ -294,6 +300,19 @@ def seed(session) -> dict:
     for actor_id, name in (("actor-1", "Khách 1"), ("actor-2", "Khách 2")):
         if session.get(Actor, actor_id) is None:
             session.add(Actor(id=actor_id, display_name=name))
+    # Phiên bản nguồn persona lúc seed mới nhất: pipeline so với
+    # persona_sha lúc build để báo ready/stale (xem rag.index_status).
+    # Chỉ upsert đúng key này, không động vào meta khác của index.
+    from .engine.rag import sha_bytes
+    _seed_sha = sha_bytes(_DATA_PATH.read_bytes())
+    _row = session.execute(
+        select(RagIndexMeta).where(
+            RagIndexMeta.key == "seed_persona_sha")).scalars().first()
+    if _row is None:
+        session.add(RagIndexMeta(key="seed_persona_sha",
+                                 value=json.dumps(_seed_sha)))
+    else:
+        _row.value = json.dumps(_seed_sha)
     session.commit()
     return {"seeded": True,
             "personas": [p["code"] for p in personas],

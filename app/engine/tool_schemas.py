@@ -21,7 +21,14 @@ TOOLS = [
             "Quy chiếu mẫu xe: bài viết chỉ nhắc một mẫu xe và khách "
             "chưa nhắc mẫu nào khác thì bản/màu khách nhắc tới đều hiểu "
             "là mẫu xe trong bài — không hỏi lại 'mẫu trong bài hay mẫu "
-            "khác'.",
+            "khác'. Từ chối: nếu khách từ chối trả lời một câu hỏi đang "
+            "chờ (kể cả câu hỏi xin SĐT), nêu key của câu hỏi đó vào "
+            "declined_question_keys — engine sẽ đánh dấu từ chối và cấm "
+            "hỏi lại key đó. Kết cục lead: chỉ khi khách từ chối theo "
+            "đuổi mua nữa thì lead_outcome='refused', chuyển hẳn sang "
+            "chuyện khác không còn ý mua thì 'topic_changed', luồng lead "
+            "đã kết thúc thì 'ended'; từ chối riêng việc chia sẻ SĐT thì "
+            "KHÔNG tính là lead_outcome mà là declined_question_keys.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -46,6 +53,8 @@ TOOLS = [
                     }},
                     "pending_questions": {"type": "array", "items": {"type": "string"}},
                     "answered_question_keys": {"type": "array", "items": {"type": "string"}},
+                    "declined_question_keys": {"type": "array", "items": {"type": "string"}},
+                    "lead_outcome": {"enum": ["refused", "topic_changed", "ended", None]},
                     "known_customer": {"type": "object"},
                     "known_persona": {"type": "object"},
                     "data_needs": {"type": "array", "items": {"type": "string"}},

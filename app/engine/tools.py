@@ -461,7 +461,10 @@ class ToolExecutor:
 
     def _evidence_matches_server_message(self, evidence: str) -> bool:
         """Evidence phải tồn tại trong message do server xác định:
-        lượt khách hiện tại hoặc các lượt user trước trong thread.
+        lượt khách hiện tại hoặc các lượt user trước TRONG CÙNG ACTOR
+        của thread này. Lời của actor khác trong cùng thread KHÔNG được
+        làm evidence cho fact của actor này (thread đa actor: Khách 2
+        nói gì cũng không thành fact của Khách 1).
         Chấp nhận substring chuẩn hóa hoặc overlap token >= 0.7 (để
         model trích dẫn gần đúng vẫn qua, bịa hoàn toàn thì không)."""
         import re as _re
@@ -474,7 +477,8 @@ class ToolExecutor:
             rows = self.s.execute(
                 select(_Msg).where(
                     _Msg.thread_id == self.thread_id,
-                    _Msg.role == "user")).scalars().all()
+                    _Msg.role == "user",
+                    _Msg.actor_id == self.actor_id)).scalars().all()
             texts.extend(r.text for r in rows)
         except Exception:
             pass

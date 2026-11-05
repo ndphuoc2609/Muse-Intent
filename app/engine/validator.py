@@ -214,7 +214,48 @@ def _date_raw(sentence: str, d: tuple) -> str:
     return ""
 
 
+def _stripped_tokens(text: str) -> list[str]:
+    """Token đã bỏ dấu (đ -> d) để so phủ định khớp cả 'không' lẫn 'khong'."""
+    import unicodedata
+    stripped = "".join(
+        c for c in unicodedata.normalize("NFD", text or "")
+        if unicodedata.category(c) != "Mn").lower().replace("đ", "d")
+    return stripped.split()
+
+
+def _negated_against(tokens: list[str], other_tokens: set[str]) -> bool:
+    """Marker phủ định trong tokens có 'đánh' vào nội dung của other không.
+
+    Marker chỉ tính khi một từ trong cửa sổ 2 token sau nó xuất hiện
+    trong other. Nhờ vậy 'đoạn ngập không rõ độ sâu' (từ sau 'không'
+    là 'rõ', không có trong claim) không bị tính là phủ định mệnh đề
+    chính — hồi quy test_storytold_dedupe (mem_3) — trong khi 'chưa
+    từng chạy đường dài' (từ 'chạy' có trong claim) vẫn tính.
+    Ngoại lệ: 'không chỉ' / 'không những' là nhượng bộ; không dùng
+    'đừng' vì sau khi bỏ dấu nó trùng 'đúng'. Phủ định kép không được
+    giải quyết.
+    """
+    for i, tok in enumerate(tokens):
+        if tok in ("chua", "chang"):
+            if set(tokens[i + 1:i + 3]) & other_tokens:
+                return True
+        elif tok == "khong":
+            nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
+            if nxt in ("chi", "nhung"):
+                continue
+            if set(tokens[i + 1:i + 3]) & other_tokens:
+                return True
+    return False
+
+
 def _story_matches(claim_value: str, fact_value: str) -> bool:
+    # Phủ định đảo nghĩa (xem _negated_against): kiểm tra trước cả
+    # typed_match vì phủ định đảo cả khẳng định số/ngày.
+    _ct = set(_stripped_tokens(claim_value))
+    _ft = set(_stripped_tokens(fact_value))
+    if _negated_against(_stripped_tokens(claim_value), _ft) != \
+            _negated_against(_stripped_tokens(fact_value), _ct):
+        return False
     typed = typed_match(claim_value, fact_value)
     if typed is not None:
         return typed

@@ -35,7 +35,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db import init_db
@@ -59,6 +59,11 @@ def main() -> int:
     payload = json.loads(data_path.read_text(encoding="utf-8"))
     records = payload["personas"] if isinstance(payload, dict) \
         else payload
+    # Version nguồn: SHA file dữ liệu lúc build. Chunk nào cũng đóng dấu
+    # SHA của file nguồn của nó để pipeline so với SHA lúc seed mới nhất.
+    from app.engine.rag import sha_bytes
+    persona_sha = sha_bytes(data_path.read_bytes())
+    company_sha = None
 
     engine = create_engine(args.db, connect_args={"check_same_thread": False}
                            if args.db.startswith("sqlite") else {})
@@ -81,6 +86,7 @@ def main() -> int:
         company_chunks = build_company_chunks(dealers)
         all_chunks.extend(company_chunks)
         company_source = str(company_path)
+        company_sha = sha_bytes(company_path.read_bytes())
     texts = [c["text"] for c in all_chunks]
 
     if args.provider == "tfidf":
@@ -116,9 +122,27 @@ def main() -> int:
         "built_at": datetime.now(timezone.utc).isoformat(),
         "source": str(data_path),
         "company_source": company_source,
+        "persona_sha": persona_sha,
+        "company_sha": company_sha,
     })
 
     session.query(RagChunk).delete()
+    # Seed() đã chạy ở đầu build và ghi seed_persona_sha; wipe meta dưới
+    # đây sẽ xóa nó nên phải giữ lại trước khi xóa (nếu không status sẽ
+    # kẹt ở unknown ngay sau build). Với --data mặc định thì giá trị này
+    # bằng persona_sha (cùng file) nên status ra ready; với --data khác
+    # file seed thì hai SHA lệch nhau và status ra stale — đúng, vì đó
+    # là lệch nguồn thật giữa seed và build.
+    _seed_row = session.execute(
+        select(RagIndexMeta).where(
+            RagIndexMeta.key == "seed_persona_sha")).scalars().first()
+    _kept_seed_sha = None
+    if _seed_row is not None:
+        try:
+            _kept_seed_sha = json.loads(_seed_row.value)
+        except (ValueError, TypeError):
+            _kept_seed_sha = _seed_row.value
+    meta["seed_persona_sha"] = _kept_seed_sha
     session.query(RagIndexMeta).delete()
     for chunk, vec in zip(all_chunks, vectors):
         session.add(RagChunk(id=chunk["id"],
@@ -127,6 +151,9 @@ def main() -> int:
                              chunk_type=chunk["chunk_type"],
                              source_ref=chunk["source_ref"],
                              text=chunk["text"],
+                             source_sha=(company_sha
+                                         if chunk.get("domain") == "company"
+                                         else persona_sha),
                              embedding=json.dumps(vec, ensure_ascii=False)))
     for key, value in meta.items():
         session.add(RagIndexMeta(key=key, value=json.dumps(

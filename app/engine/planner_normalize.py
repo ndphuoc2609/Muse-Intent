@@ -124,10 +124,15 @@ def normalize_planner_args(args: dict) -> dict:
         "pending_questions": [str(x) for x in args.get("pending_questions") or []],
         "answered_question_keys": [
             str(x) for x in args.get("answered_question_keys") or []],
+        "declined_question_keys": [
+            str(x) for x in args.get("declined_question_keys") or []],
         "known_customer": args.get("known_customer") or {},
         "known_persona": args.get("known_persona") or {},
         "data_needs": _data_needs(args.get("data_needs")),
         "goal": _goal(args.get("goal")),
+        "lead_outcome": args.get("lead_outcome")
+        if args.get("lead_outcome") in ("refused", "topic_changed", "ended")
+        else None,
         "response_direction": {
             "answer_first": bool(direction.get("answer_first", True)),
             "ask_followup": ask_followup,

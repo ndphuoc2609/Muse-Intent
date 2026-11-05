@@ -42,6 +42,15 @@ class Planner(BaseModel):
     # Câu hỏi cũ được lượt này trả lời (key), kèm evidence; engine vẫn
     # kiểm chứng lại trước khi đánh dấu ANSWERED (§10).
     answered_question_keys: list[str] = []
+    # Câu hỏi đang chờ mà khách từ chối trả lời trong lượt này (key).
+    # Engine đánh dấu DECLINED; validator cấm hỏi lại key đó (§4).
+    declined_question_keys: list[str] = []
+    # Kết cục luồng lead do planner phán quyết (không phải keyword):
+    # refused = khách từ chối theo đuổi mua nữa; topic_changed = chuyển
+    # hẳn sang chuyện khác, không còn ý mua; ended = luồng lead đã kết
+    # thúc. Từ chối RIÊNG việc chia sẻ SĐT thì KHÔNG tính ở đây mà là
+    # declined_question_keys của câu hỏi xin SĐT.
+    lead_outcome: str | None = None
     known_customer: dict[str, Any] = {}
     known_persona: dict[str, Any] = {}
     data_needs: list[str] = []  # persona_facts | persona_stories |

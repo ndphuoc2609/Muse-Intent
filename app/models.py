@@ -446,7 +446,32 @@ class RagChunk(Base):
     source_ref: Mapped[str] = mapped_column(String(160))
     text: Mapped[str] = mapped_column(Text)
     embedding: Mapped[str] = mapped_column(Text)  # JSON vector
+    # SHA256 của file nguồn chunk này build từ: persona chunk -> personas.json,
+    # company chunk -> dealers.json. NULL = build trước khi có versioning
+    # (không chứng minh được tươi/cũ, pipeline báo rag_status=unknown).
+    source_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class LeadState(Base):
+    """Trạng thái kết thúc luồng lead theo (thread, actor).
+
+    Không có row = chưa có trạng thái kết thúc: latch lead chạy như cũ
+    (tín hiệu lượt này hoặc lượt trước). Có row = latch chỉ còn tính
+    tín hiệu của lượt hiện tại; tín hiệu mua mới trong một lượt sau sẽ
+    xóa row (mở lại), trừ khi planner phán quyết terminal mới trong
+    cùng lượt đó (phán quyết mới thắng tín hiệu keyword).
+    """
+    __tablename__ = "lead_states"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    thread_id: Mapped[str] = mapped_column(String(32))
+    actor_id: Mapped[str] = mapped_column(String(64))
+    # refused | topic_changed | ended
+    status: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    __table_args__ = (
+        UniqueConstraint("thread_id", "actor_id", name="uq_lead_thread_actor"),
+    )
 
 
 class RagIndexMeta(Base):
