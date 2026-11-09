@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import time
 import uuid
 
@@ -37,6 +38,8 @@ from .planner_normalize import guard_resolved_reference, normalize_planner_args
 from .tool_schemas import TOOL_SCHEMAS, TOOLS
 from .tools import ToolExecutor
 from .validator import validate
+
+logger = logging.getLogger(__name__)
 
 
 def _assign_ids(tool_calls):
@@ -676,7 +679,8 @@ class Pipeline:
                             req.text, _last_persona)
                         planner = Planner(**_guarded)
                     except Exception:
-                        pass
+                        logger.exception("Reference guard failed")
+                        self.s.rollback()
                     _append_tool(messages, tc, {
                         "tool": tc.name, "status": "FOUND",
                         "data": planner.model_dump()})
@@ -691,7 +695,8 @@ class Pipeline:
                             from .rag import index_status as _index_status
                             rag_status_info = _index_status(self.s)
                         except Exception:
-                            pass
+                            logger.exception("RAG index status failed")
+                            self.s.rollback()
                         try:
                             from .retrieval import (
                                 derive_wanted_tags, log_retrieval,
@@ -722,7 +727,8 @@ class Pipeline:
                                         for _d in _ev))
                                 trace_retrieval = _ev
                         except Exception:
-                            pass
+                            logger.exception("Story retrieval failed")
+                            self.s.rollback()
                         # RAG persona-only: sau story retrieval, truy xuất
                         # chunk vector của ĐÚNG persona này theo câu khách
                         # vừa nói. Lỗi RAG không chặn lượt (retrieval chỉ
@@ -773,6 +779,8 @@ class Pipeline:
                                             for _d in _rag))
                                     trace_rag_evidence = _rag
                         except Exception as _rag_exc:
+                            logger.exception("Persona RAG retrieval failed")
+                            self.s.rollback()
                             trace_rag_error = str(_rag_exc)
                         # RAG company (đại lý): chỉ khi lượt này hoặc
                         # lượt khách trước trong thread có tín hiệu lead
@@ -819,7 +827,8 @@ class Pipeline:
                                                      not in _seen] + _comp
                                             _comp = _comp[:3]
                                     except Exception:
-                                        pass
+                                        logger.exception("Company location lookup failed")
+                                        self.s.rollback()
                                     if _comp:
                                         for _d in _comp:
                                             executor.retrieved[
@@ -843,6 +852,8 @@ class Pipeline:
                                                 for _d in _comp))
                                         trace_company_evidence = _comp
                         except Exception as _comp_exc:
+                            logger.exception("Company RAG retrieval failed")
+                            self.s.rollback()
                             trace_company_error = str(_comp_exc)
                     continue
                 err = _validate_tool_args(tc.name, tc.arguments)
