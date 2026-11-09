@@ -32,14 +32,13 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 /* Focus trên nút xanh: outline cùng màu nền sẽ tàng hình nên dùng
    vòng trắng + vòng xanh ngoài (H1 review). */
 .btn:focus-visible,.send-btn:focus-visible{outline:2px solid #fff;box-shadow:0 0 0 4px var(--fb-blue)}
-/* Header minimal: không shadow, không mark xanh — chỉ wordmark +
-   dòng phụ xám, ngăn cách bằng hairline. */
+/* Header minimal: không shadow, không mark xanh — chỉ wordmark,
+   ngăn cách bằng hairline. */
 .fb-header{background:var(--fb-card);border-bottom:1px solid var(--fb-border);position:sticky;top:0;z-index:10}
 .fb-header-inner{max-width:1560px;margin:0 auto;padding:12px 24px;display:flex;gap:12px;align-items:center;justify-content:space-between}
 .brand{display:flex;gap:10px;align-items:center}
 .mark{display:none}
 .brand-name{font-size:17px;font-weight:700;line-height:1.4}
-.brand-sub{font-size:12px;color:var(--fb-secondary)}
 .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;background:var(--fb-hover);color:var(--fb-secondary);white-space:nowrap}
 .feed{max-width:1560px;margin:0 auto;padding:24px}
 @media (max-width:700px){.feed{padding:16px 12px}}
@@ -73,7 +72,6 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .card h2{font-size:17px;margin:0 0 4px}
 .card-summary{font-size:17px;font-weight:700;color:var(--fb-text);cursor:pointer;list-style-position:inside}
 .card-summary::marker{color:var(--fb-secondary)}
-.hint{color:var(--fb-secondary);font-size:13px;margin:0 0 12px;line-height:1.5}
 label{display:block;margin:12px 0 6px;font-weight:600;font-size:14px}
 input,select,textarea{width:100%;padding:9px 12px;border:1px solid var(--fb-border);border-radius:8px;background:#fff;color:var(--fb-text)}
 textarea{resize:vertical}
@@ -169,20 +167,18 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--fb-hover);color:
 <header class="fb-header"><div class="fb-header-inner">
   <div class="brand"><div>
     <div class="brand-name">Persona Dialogue</div>
-    <div class="brand-sub">Sandbox hội thoại theo persona</div>
   </div></div>
   <div><span class="badge">Mô phỏng sandbox</span> <a href="/admin" style="font-size:14px;font-weight:600;margin-left:8px;color:var(--fb-secondary)">Persona Admin</a></div>
 </div></header>
 
 <main class="feed">
-  <p class="notice">⚠️ Persona dựa trên người dùng thật, nhưng đây là <b>mô phỏng trong sandbox</b> — người đang chat là AI, không phải chính người đó. Dữ kiện sản phẩm ở đây là <b>dữ liệu mẫu, không phải giá thực tế</b>. FakeSender chỉ mô phỏng gửi; chưa tích hợp Facebook/Meta.</p>
+  <p class="notice">⚠️ <b>Mô phỏng sandbox</b> — người đang chat là AI, không phải chính người đó; dữ liệu sản phẩm là dữ liệu mẫu, không phải giá thực tế. Không gửi gì lên Facebook.</p>
   <p class="provider" id="providerBox">Đang kiểm tra provider…</p>
 
   <div class="layout">
   <aside class="col-side">
   <details class="card" id="setupDetails" open>
     <summary class="card-summary" id="setupTitle">Thiết lập</summary>
-    <p class="hint">Chọn persona, seed dữ liệu mẫu, rồi tạo bài viết để bắt đầu bình luận.</p>
     <div class="row">
       <button type="button" class="btn gray" id="seedBtn" onclick="seedAndLoad()">Seed persona mẫu</button>
       <button type="button" class="btn gray" onclick="loadPersonas()">Tải lại danh sách</button>
@@ -199,7 +195,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--fb-hover);color:
   </details>
   </aside>
   <div class="col-main">
-  <div class="empty" id="postEmpty">Chưa có bài viết — tạo bài ở mục Thiết lập để bắt đầu bình luận.</div>
+  <div class="empty" id="postEmpty">Chưa có bài viết.</div>
   <article class="card" id="postCard" style="display:none" aria-label="Bài viết">
     <div class="post-head">
       <div class="avatar lg" id="postAvatar" aria-hidden="true">?</div>
@@ -220,7 +216,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--fb-hover);color:
       <button type="button" class="action-btn" onclick="sharePost()">↗️ Chia sẻ</button>
     </div>
     <div class="comments" id="chat" role="log" aria-label="Bình luận">
-      <div class="empty" id="chatEmpty">Chưa có bình luận nào. Hãy là người đầu tiên bình luận bên dưới.</div>
+      <div class="empty" id="chatEmpty">Chưa có bình luận nào.</div>
     </div>
     <div class="row" style="margin-top:14px">
       <label for="actor" style="margin:0">Bình luận với tư cách:</label>
@@ -239,27 +235,25 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--fb-hover);color:
       <summary>Tùy chọn nâng cao</summary>
       <label for="idem">Idempotency-Key (tùy chọn; nhập lại key cũ để test gửi lặp)</label>
       <input id="idem" placeholder="vd: turn-1">
-      <p class="meta" id="commentHint">Hãy tạo bài viết ở trên trước, rồi mới bình luận được. Mẹo: Enter để gửi, Shift + Enter để xuống dòng.</p>
+      <p class="meta" id="commentHint">Enter để gửi, Shift + Enter để xuống dòng.</p>
     </details>
   </article>
   </div>
   <aside class="col-right">
   <details class="card" id="plannerCol">
     <summary class="card-summary" id="plannerTitle">Conversation Planner</summary>
-    <p class="hint">Định hướng của lượt vừa gửi: model hiểu gì, định trả lời theo hướng nào, có hỏi thêm không, và mỗi intent đến từ đâu. Đọc mục này thay vì mở JSON trace khi chỉ cần biết "nó định làm gì tiếp theo".</p>
-    <div id="planner"><p class="meta">Chưa có lượt nào — gửi bình luận đầu tiên để xem planner.</p></div>
+    <div id="planner"><p class="meta">Chưa có lượt nào.</p></div>
   </details>
 
   <details class="card" id="storiesCol">
     <summary class="card-summary" id="storiesTitle">Canonical stories của persona</summary>
-    <p class="hint">Story đã lưu và addenda. Thu hồi chỉ đổi trạng thái, không xóa lịch sử.</p>
     <div class="row"><button type="button" class="btn gray" onclick="loadPersonaDetail()">Tải lại stories</button></div>
     <div id="stories" style="margin-top:12px"><p class="meta">Chưa tải stories.</p></div>
   </details>
   </aside>
   </div>
 
-  <p class="footer">Để Luna thật trả lời thay vì bản mô phỏng: đặt <code>LLM_PROVIDER=openrouter</code>, <code>OPENROUTER_API_KEY</code> và <code>OPENROUTER_MODEL=openai/gpt-6-luna</code> vào file <code>.env</code> trên máy chủ rồi khởi động lại server — không nhập key vào giao diện này, không dán key vào chat.</p>
+  <p class="footer">Để bật Luna thật: đặt <code>LLM_PROVIDER=openrouter</code> và <code>OPENROUTER_API_KEY</code> vào <code>.env</code> trên máy chủ rồi khởi động lại server — không nhập/dán key vào giao diện hay chat.</p>
 </main>
 
 <script>
@@ -401,7 +395,7 @@ async function loadPersonaDetail() {
     `<p class="meta">v${esc(s.version)} · ${esc(s.status)}</p>` +
     `<p>${esc(s.summary)}</p>` +
     (s.addenda.length ? `<p><b>Addenda:</b> ${esc(s.addenda.join(' | '))}</p>` : '') +
-    ` <button type="button" class="danger-text" data-revoke-id="${esc(s.event_id)}">Thu hồi story</button></article>`).join('') + `</div>` : '<p class="meta">Chưa có story nào. Hỏi persona về kỷ niệm để tạo story đầu tiên.</p>';
+    ` <button type="button" class="danger-text" data-revoke-id="${esc(s.event_id)}">Thu hồi story</button></article>`).join('') + `</div>` : '<p class="meta">Chưa có story nào.</p>';
   document.querySelectorAll('[data-revoke-id]').forEach(btn => {
     btn.addEventListener('click', () => revoke(btn.getAttribute('data-revoke-id')));
   });
@@ -464,7 +458,7 @@ async function sharePost(){
 }
 async function createPost() {
   const pid = document.getElementById('persona').value;
-  if (!pid) { alert('Hãy chọn persona ở Bước 1 (bấm Seed nếu chưa có).'); return; }
+  if (!pid) { alert('Hãy chọn persona (bấm Seed nếu chưa có).'); return; }
   const postText = document.getElementById('post').value.trim();
   const vehicles = document.getElementById('vehicles').value.split(',').map(x=>x.trim()).filter(Boolean);
   if (!postText || !vehicles.length) {
@@ -563,7 +557,7 @@ function renderComments(messages, reactions){
   document.getElementById('postReactions').textContent = postLiked() ? '👍' : '';
   document.getElementById('postReactionTotal').textContent = postLiked() ? '1' : '';
   if (!messages.length) {
-    chat.innerHTML = '<div class="empty" id="chatEmpty">Chưa có bình luận nào. Hãy là người đầu tiên bình luận bên dưới.</div>';
+    chat.innerHTML = '<div class="empty" id="chatEmpty">Chưa có bình luận nào.</div>';
     return;
   }
   chat.innerHTML = messages.map(m => {
@@ -701,7 +695,7 @@ async function sendTurn() {
   if (isSending) return;
   const text = document.getElementById('comment').value.trim();
   if (!text) return;
-  if (!threadId) { alert('Hãy tạo bài viết ở trên trước.'); return; }
+  if (!threadId) { alert('Hãy tạo bài viết trước.'); return; }
   isSending = true;
   const sendBtn = document.getElementById('sendBtn');
   const commentBox = document.getElementById('comment');
