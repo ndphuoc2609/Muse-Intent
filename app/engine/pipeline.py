@@ -6,8 +6,7 @@ Luồng một lượt (không giữ khóa DB khi chờ model):
 3. Tool loop với provider (planner là tool đầu tiên, không thêm 1 LLM
    call riêng: lý do latency + chi phí — planner vẫn là bước tường minh
    trước mọi retrieval, xem README).
-4. Validator -> repair tối đa N vòng -> hết vòng thì review, không thay
-   bằng câu chung chung sai ý khách.
+4. Validator -> repair tối đa N vòng -> gửi tự động và lưu các lỗi còn lại.
 5. Lưu story/addendum/customer fact TRƯỚC khi gửi (đã lưu trong tool
    loop); chỉ ghi delivery + told_in_message_id khi FakeSender sent.
 6. Cập nhật QuestionState: chỉ ANSWERED khi lượt này trả lời đúng câu hỏi.
@@ -22,7 +21,7 @@ import time
 import uuid
 
 import jsonschema
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from ..config import SETTINGS
@@ -33,6 +32,7 @@ from .typed_values import (find_money, parse_dates, parse_distance_km,
                            parse_percent)
 from ..schemas import FinalReply, Planner, TurnRequest, TurnResponse
 from .fake_sender import FakeSender
+from .delivery_state import can_recover, finish_delivery, has_later_messages, make_snapshot
 from .planner_normalize import guard_resolved_reference, normalize_planner_args
 from .tool_schemas import TOOL_SCHEMAS, TOOLS
 from .tools import ToolExecutor
@@ -269,9 +269,38 @@ class Pipeline:
                             return TurnResponse(
                                 status="sent", thread_id=thread.id,
                                 message_id=prev.id, reply_text=prev.text,
+                                validator_errors=(prev.trace or {}).get("validator_errors", []),
                                 trace={**prev.trace, "idempotent_replay": True})
                         if prev.status == "error":
-                            result = self.sender.send(prev.id, prev.text)
+                            snapshot = (prev.trace or {}).get("delivery_recovery")
+                            faq = (prev.trace or {}).get("gate", {}).get("action") == "faq"
+                            if (not prev.text or has_later_messages(self.s, prev)
+                                    or (not faq and not can_recover(
+                                        self.s, snapshot, prev, req.persona_id, req.actor_id))):
+                                return TurnResponse(
+                                    status="error", thread_id=thread.id,
+                                    message_id=prev.id, reply_text=prev.text or None,
+                                    validator_errors=["recovery_unavailable: dữ kiện đã thay đổi hoặc không đủ thông tin để gửi lại"],
+                                    trace={**prev.trace, "recovery_unavailable": True})
+                            claimed = self.s.execute(update(Message).where(
+                                Message.id == prev.id, Message.status == "error"
+                            ).values(status="sending"))
+                            if claimed.rowcount != 1:
+                                self.s.rollback()
+                                return TurnResponse(status="error", thread_id=thread.id,
+                                    message_id=prev.id, reply_text=prev.text,
+                                    validator_errors=["recovery_in_progress"])
+                            self.s.commit()
+                            try:
+                                result = self.sender.send(prev.id, prev.text)
+                            except Exception:
+                                # The sender may have delivered before raising.
+                                # Keep the claim until delivery is reconciled.
+                                prev.trace = {**prev.trace, "delivery_unknown": True}
+                                self.s.commit()
+                                return TurnResponse(status="error", thread_id=thread.id,
+                                    message_id=prev.id, reply_text=prev.text,
+                                    validator_errors=["delivery_unknown: cần xác minh kết quả gửi"])
                             if result["status"] == "sent":
                                 prev.status = "sent"
                                 old_del = self.s.execute(
@@ -283,21 +312,52 @@ class Pipeline:
                                 else:
                                     self.s.add(Delivery(message_id=prev.id,
                                                         sender="fake", status="sent"))
+                                if not faq:
+                                    recovered_executor = ToolExecutor(
+                                        self.s, req.persona_id, thread.id, req.actor_id)
+                                    finish_delivery(self.s, recovered_executor, snapshot,
+                                                    prev, recovered=True)
                                 idem_rec.status = "sent"
                                 self.s.commit()
                                 return TurnResponse(
                                     status="sent", thread_id=thread.id,
                                     message_id=prev.id, reply_text=prev.text,
+                                    validator_errors=(prev.trace or {}).get("validator_errors", []),
                                     trace={**prev.trace, "recovered": True})
+                            prev.status = "error"
+                            self.s.commit()
                             return TurnResponse(
                                 status="error", thread_id=thread.id,
                                 message_id=prev.id, reply_text=prev.text,
+                                validator_errors=[*((prev.trace or {}).get("validator_errors", [])),
+                                                  "fake_sender_failed"],
                                 trace={**prev.trace, "recovery_failed": True})
+                        if prev.status == "sending":
+                            return TurnResponse(status="error", thread_id=thread.id,
+                                message_id=prev.id, reply_text=prev.text,
+                                validator_errors=["delivery_unknown" if (prev.trace or {}).get("delivery_unknown")
+                                                  else "recovery_in_progress"])
                         return TurnResponse(
                             status=prev.status, thread_id=thread.id,
                             message_id=prev.id, reply_text=prev.text,
+                            validator_errors=(prev.trace or {}).get("validator_errors", []),
                             trace={**prev.trace, "idempotent_replay": True})
                 elif idem_rec.user_message_id:
+                    if idem_rec.status == "skipped":
+                        prior_user = self.s.get(Message, idem_rec.user_message_id)
+                        prior_gate = ((prior_user.trace or {}).get("gate")
+                                      if prior_user is not None else None)
+                        prior_score = ((prior_user.trace or {}).get("intent_score")
+                                       if prior_user is not None else None)
+                        return TurnResponse(
+                            status="skipped", thread_id=thread.id, reply_text=None,
+                            trace={"idempotent_replay": True,
+                                   "gate": prior_gate or {"action": "bypass"},
+                                   "intent_score": prior_score})
+                    if idem_rec.status == "in_progress":
+                        return TurnResponse(
+                            status="error", thread_id=thread.id, reply_text=None,
+                            validator_errors=["idempotency_in_progress: lượt này đang được xử lý"])
                     reuse_user_msg = self.s.get(Message, idem_rec.user_message_id)
             else:
                 # Key ở thread/actor khác không ảnh hưởng scope này:
@@ -405,6 +465,16 @@ class Pipeline:
         from .gate import decide_gate, load_bank
         _gate = decide_gate(req.text, has_pending=bool(pending_qs),
                             has_lead=_lead_capture, bank=load_bank())
+        _gate_trace = {"action": _gate.action, "reason": _gate.reason}
+        if _gate.faq_id:
+            _gate_trace["entry_id"] = _gate.faq_id
+        from .intent_score import score_intent
+        _intent_score = score_intent(req.text, has_pending=bool(pending_qs),
+                                     has_lead=_lead_capture, current_lead=_signal_current,
+                                     gate_action=_gate.action)
+        user_msg.trace = {**(user_msg.trace or {}), "gate": _gate_trace,
+                          "intent_score": _intent_score}
+        self.s.commit()
         if _gate.action == "bypass":
             if idempotency_key and idem_rec is not None:
                 try:
@@ -417,10 +487,9 @@ class Pipeline:
                 message_id=None, reply_text=None,
                 flow=[f"Gate: bỏ qua — {_gate.reason} (không gọi LLM)",
                       "Chi phí: $0.000000, 0.0s, 0 calls"],
-                trace={"gate": {"action": "bypass", "reason": _gate.reason}})
+                trace={"gate": _gate_trace, "intent_score": _intent_score})
         if _gate.action == "faq":
-            _faq_trace = {"gate": {"action": "faq", "entry_id": _gate.faq_id,
-                                   "reason": _gate.reason}}
+            _faq_trace = {"gate": _gate_trace, "intent_score": _intent_score}
             _faq_msg = Message(thread_id=thread.id, role="persona",
                                text=_gate.answer, status="draft",
                                idempotency_key=None, trace=_faq_trace)
@@ -783,7 +852,10 @@ class Pipeline:
                     continue
                 if tc.name == "submit_final_reply":
                     try:
-                        final = FinalReply(**tc.arguments).model_dump()
+                        candidate = FinalReply(**tc.arguments).model_dump()
+                        if not candidate["text"].strip():
+                            raise ValueError("empty reply")
+                        final = candidate
                     except Exception as e:
                         _append_tool(messages, tc, {
                             "tool": tc.name, "status": "UNKNOWN",
@@ -813,6 +885,8 @@ class Pipeline:
         # Customer fact gắn với thread/actor/message qua evidence + thread;
         # message_id của lượt khách đã lưu ở user_msg (dùng cho audit sau).
         trace_base = {
+            "gate": _gate_trace,
+            "intent_score": _intent_score,
             "planner": planner.model_dump(),
             "tool_calls": tool_calls_log,
             "saved_customer_facts": executor.saved_customer_facts,
@@ -917,6 +991,7 @@ class Pipeline:
                 validator_errors.append(f"provider_error_on_repair: {e}")
                 break
             repaired = None
+            invalid_repair = False
             if result.tool_calls:
                 # Đóng chuỗi tool call cho vòng repair, nếu không lần
                 # repair tiếp theo sẽ lại gửi history dở dang -> 400.
@@ -924,12 +999,24 @@ class Pipeline:
                 _append_assistant(messages, result)
                 for tc in result.tool_calls:
                     if tc.name == "submit_final_reply":
-                        repaired = tc.arguments
-                    _append_tool(messages, tc, {
-                        "tool": tc.name, "status": "FOUND"})
+                        try:
+                            candidate = FinalReply(**tc.arguments).model_dump()
+                            if not candidate["text"].strip():
+                                raise ValueError("empty reply")
+                            repaired = candidate
+                        except (TypeError, ValueError):
+                            invalid_repair = True
+                            _append_tool(messages, tc, {
+                                "tool": tc.name, "status": "UNKNOWN",
+                                "reason": "invalid repair reply"})
+                            continue
+                    _append_tool(messages, tc, {"tool": tc.name, "status": "FOUND"})
             if repaired is not None:
                 final = repaired
-            elif result.text:
+            elif invalid_repair:
+                validator_errors.append("invalid_repair_reply: giữ câu trả lời ban đầu")
+                break
+            elif result.text and result.text.strip():
                 final = {"text": result.text, "claims": [],
                          "goal": final.get("goal", "answer_question")}
             else:
@@ -946,6 +1033,9 @@ class Pipeline:
                           executor.saved_stories, validator_errors,
                           cost, time.time() - started, llm_calls)
         trace_base["flow"] = flow
+        trace_base["validator_errors"] = validator_errors
+        if goal == "handoff":
+            trace_base["handoff"] = True
         # --- 5. Cập nhật QuestionState: chỉ ANSWERED khi planner nêu key.
         # Chuyển chủ đề KHÔNG có nghĩa đã trả lời, và KHÔNG tự đổi
         # pending -> redirected (lỗi cũ làm mất câu hỏi đang chờ).
@@ -955,9 +1045,7 @@ class Pipeline:
         # Thứ tự ưu tiên: opt-out (dừng toàn cuộc trò chuyện) -> refused;
         # planner phán quyết terminal mới -> giá trị đó; tín hiệu mua mới
         # trong lượt này mà không có phán quyết terminal mới -> xóa trạng
-        # thái cũ (mở lại). Chạy cả ở lượt review/handoff (phán quyết của
-        # planner về cuộc trò chuyện vẫn đúng dù reply chưa gửi); lượt
-        # lỗi không có final thì bỏ qua.
+        # thái cũ (mở lại). Lượt lỗi không có final thì bỏ qua.
         from ..models import LeadState as _LS2
         _ls_row = self.s.execute(
             select(_LS2).where(
@@ -984,45 +1072,11 @@ class Pipeline:
         # Followup key fallback (không rớt câu hỏi chỉ vì thiếu key).
         if final.get("followup_question") and not final.get("followup_key"):
             final["followup_key"] = "followup_question"
-        # Followup QuestionState CHỈ được tạo khi delivery thành công
-        # (xem nhánh sent bên dưới). Lượt review/error chưa từng được
-        # gửi cho khách thì không được tính là "đã hỏi".
+        # Followup QuestionState chỉ được tạo khi delivery thành công.
         # --- 6. Delivery theo goal/status.
         reply_text = final.get("text", "")
-        if validator_errors:
-            msg = Message(thread_id=thread.id, role="persona", text=reply_text,
-                          status="review", idempotency_key=None,
-                          trace={**trace_base,
-                                 "validator_errors": validator_errors})
-            self.s.add(msg)
-            self.s.commit()
-            executor.reject_pending()
-            _idem_update(msg)
-            return TurnResponse(status="review", thread_id=thread.id,
-                                message_id=msg.id, reply_text=reply_text,
-                                planner=planner.model_dump(),
-                                tool_calls=tool_calls_log,
-                                saved_customer_facts=executor.saved_customer_facts,
-                                saved_stories=executor.saved_stories,
-                                validator_errors=validator_errors,
-                                flow=flow,
-                                trace=trace_base)
-        if goal == "handoff":
-            msg = Message(thread_id=thread.id, role="persona", text=reply_text,
-                          status="review", idempotency_key=None,
-                          trace={**trace_base, "handoff": True})
-            self.s.add(msg)
-            self.s.commit()
-            executor.reject_pending()
-            _idem_update(msg)
-            return TurnResponse(status="review", thread_id=thread.id,
-                                message_id=msg.id, reply_text=reply_text,
-                                planner=planner.model_dump(),
-                                tool_calls=tool_calls_log,
-                                saved_customer_facts=executor.saved_customer_facts,
-                                saved_stories=executor.saved_stories,
-                                flow=flow,
-                                trace=trace_base)
+        snapshot = make_snapshot(self.s, executor, final, opted_out)
+        trace_base["delivery_recovery"] = snapshot
         msg = Message(thread_id=thread.id, role="persona", text=reply_text,
                       status="draft", idempotency_key=None,
                       trace=trace_base)
@@ -1033,55 +1087,7 @@ class Pipeline:
             msg.status = "sent"
             self.s.add(Delivery(message_id=msg.id, sender="fake",
                                 status="sent"))
-            # Chỉ khi gửi thành công mới activate proposals và đánh dấu
-            # story đã kể. Story được truy xuất lại và claim trong final
-            # cũng được ghi StoryTold, không chỉ story vừa tạo.
-            executor.activate_pending()
-            for st in executor.saved_stories:
-                row = self.s.get(PersonaStory, st["event_id"])
-                if row and not row.told_in_message_id:
-                    row.told_in_message_id = msg.id
-            # Model có thể claim cùng một story hai lần trong một final
-            # (live Luna 2026-11-02 claim AUTO_029_mem_3 hai lần) — unique
-            # (event, actor, message) sẽ làm hỏng cả commit nếu insert
-            # trùng. Dedupe trong lượt + kiểm tra hàng đã có trước khi
-            # insert. Lưu ý: try/except quanh add() KHÔNG bắt được lỗi
-            # này vì add() chưa chạm DB, lỗi chỉ nổ ở flush/commit — nên
-            # không dùng rollback ở đây nữa.
-            seen_story_refs = set()
-            for claim in final.get("claims", []) or []:
-                if claim.get("kind") == "story" and claim.get("ref_id"):
-                    if claim["ref_id"] in seen_story_refs:
-                        continue
-                    seen_story_refs.add(claim["ref_id"])
-                    st = self.s.get(PersonaStory, claim["ref_id"])
-                    if st is not None:
-                        exists = self.s.execute(
-                            select(StoryTold).where(
-                                StoryTold.event_id == st.event_id,
-                                StoryTold.actor_id == req.actor_id,
-                                StoryTold.message_id == msg.id)).scalars().first()
-                        if not exists:
-                            self.s.add(StoryTold(
-                                event_id=st.event_id,
-                                persona_id=req.persona_id,
-                                actor_id=req.actor_id,
-                                thread_id=thread.id, message_id=msg.id))
-            # Followup chỉ được tạo khi delivery thành công.
-            if final.get("followup_question") and final.get("followup_key") \
-                    and not opted_out and goal != "handoff":
-                exists = self.s.execute(
-                    select(QuestionState).where(
-                        QuestionState.thread_id == thread.id,
-                        QuestionState.actor_id == req.actor_id,
-                        QuestionState.question_key == final["followup_key"],
-                        QuestionState.status == "pending")).scalars().first()
-                if not exists:
-                    self.s.add(QuestionState(
-                        thread_id=thread.id, actor_id=req.actor_id,
-                        question_key=final["followup_key"],
-                        question_text=final["followup_question"],
-                        asked_message_id=msg.id))
+            finish_delivery(self.s, executor, snapshot, msg)
             self.s.commit()
             _idem_update(msg)
             return TurnResponse(status="sent", thread_id=thread.id,
@@ -1090,6 +1096,7 @@ class Pipeline:
                                 tool_calls=tool_calls_log,
                                 saved_customer_facts=executor.saved_customer_facts,
                                 saved_stories=executor.saved_stories,
+                                validator_errors=validator_errors,
                                 flow=flow,
                                 trace=trace_base)
         msg.status = "error"
@@ -1104,7 +1111,7 @@ class Pipeline:
                             tool_calls=tool_calls_log,
                             saved_customer_facts=executor.saved_customer_facts,
                             saved_stories=executor.saved_stories,
-                            validator_errors=["fake_sender_failed"],
+                            validator_errors=[*validator_errors, "fake_sender_failed"],
                             flow=flow,
                             trace=trace_base)
 

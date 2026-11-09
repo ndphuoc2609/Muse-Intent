@@ -3,6 +3,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app app
+COPY data data
 COPY migrations migrations
 ENV DATABASE_URL=postgresql://persona:persona@db:5432/persona_dialogue
 EXPOSE 8000

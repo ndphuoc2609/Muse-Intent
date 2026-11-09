@@ -93,11 +93,12 @@ def test_ai_identity_disclosure(pipe):
     assert "không phải người thật" in (r.reply_text or "")
 
 
-def test_transaction_goes_to_handoff_review_not_sent(pipe):
+def test_transaction_handoff_reply_is_sent(pipe):
     r = turn(pipe, "Tôi muốn đặt cọc ngay.")
-    assert r.status == "review"
+    assert r.status == "sent"
     assert "không xác nhận" in (r.reply_text or "")
     assert "đã đặt cọc" not in (r.reply_text or "")
+    assert "chuyển ý này" not in (r.reply_text or "")
 
 
 def test_no_repeat_question_when_already_known(pipe):

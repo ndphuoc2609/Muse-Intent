@@ -160,8 +160,7 @@ class _SimpleProvider:
 
 class _LeadConfirmProvider:
     """plan -> propose_customer_fact(phone) -> final với goal cho trước.
-    Dùng để khóa hành vi: xác nhận lead bằng goal handoff thì bị giữ
-    review + fact bị reject; bằng answer_question thì sent + fact current."""
+    Cả handoff và answer_question đều gửi và kích hoạt fact khi thành công."""
 
     def __init__(self, goal):
         self.goal = goal
@@ -215,7 +214,7 @@ def _phone_fact(session, thread_id):
     return rows
 
 
-def test_lead_confirm_handoff_goes_to_review_and_rejects_fact(session):
+def test_lead_confirm_handoff_is_sent_and_activates_fact(session):
     from app.engine.fake_sender import FakeSender
     from app.engine.pipeline import Pipeline
     from app.schemas import TurnRequest
@@ -225,9 +224,9 @@ def test_lead_confirm_handoff_goes_to_review_and_rejects_fact(session):
         post_vehicle_models=["Hyundai Creta"],
         actor_id="actor-1",
         text="Số em là 0901234567, bác gửi sale add Zalo giúp em nhé."))
-    assert r.status == "review"
+    assert r.status == "sent"
     rows = _phone_fact(session, r.thread_id)
-    assert rows and all(f.status == "rejected" for f in rows)
+    assert rows and all(f.status == "current" for f in rows)
 
 
 def test_lead_confirm_answer_question_sends_and_saves_fact(session):

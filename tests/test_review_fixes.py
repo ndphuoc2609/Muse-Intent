@@ -182,11 +182,11 @@ def test_lead_terminal_latch_and_reopen(session):
               thread_id=tid)
     row = _lead_row(session, tid)
     assert row is not None and row.status == "topic_changed"
-    # T3: không còn tín hiệu mới, latch lịch sử bị khóa -> hỏi SĐT bị chặn.
+    # T3: không còn tín hiệu mới, latch lịch sử bị khóa -> validator báo lỗi.
     p3 = Pipeline(session, _PlanFinalStub("Cho mình số điện thoại nhé"),
                   FakeSender())
     r3 = turn(p3, "Bác đi Creta lâu chưa?", thread_id=tid)
-    assert r3.status == "review"
+    assert r3.status == "sent"
     assert any("private_request" in e for e in r3.validator_errors)
     # T4: tín hiệu mua mới, planner không phán quyết terminal -> mở lại.
     p4 = Pipeline(session, _PlanFinalStub("Creta đi phố tiết kiệm lắm."),
@@ -225,7 +225,7 @@ def test_lead_signal_does_not_leak_across_actors(session):
     p2 = Pipeline(session, _PlanFinalStub("Cho mình số điện thoại nhé"),
                   FakeSender())
     r2 = turn(p2, "Bác đi Creta lâu chưa?", thread_id=tid, actor="actor-2")
-    assert r2.status == "review"
+    assert r2.status == "sent"
     assert any("private_request" in e for e in r2.validator_errors)
     # Control: A hỏi trung tính + final xin SĐT: latch A bật từ lịch sử
     # của chính A -> sent.
@@ -259,9 +259,9 @@ def test_declined_same_turn_blocks_reask_in_pipeline(session):
         followup_key="phone"), FakeSender())
     r2 = turn(p2, "Không tiện cho số đâu, để mình tự liên hệ sau",
               thread_id=tid)
-    assert r2.status == "review"
+    assert r2.status == "sent"
     assert any("refused_question" in e for e in r2.validator_errors)
-    # QuestionState phone đã được ghi declined dù lượt review.
+    # QuestionState phone cũ vẫn ghi nhận declined khi lượt được gửi.
     session.refresh(q)
     assert q.status == "declined"
 
@@ -331,12 +331,12 @@ def test_evidence_actor_scoped(session):
 
 # --- 6. Build script end-to-end (meta preservation) ---
 
-def test_build_script_end_to_end(monkeypatch):
+def test_build_script_end_to_end(monkeypatch, tmp_path):
     import json
     from sqlalchemy import create_engine as _ce
     from sqlalchemy.orm import sessionmaker as _sm
     from scripts.build_rag_index import main as _build_main
-    scratch = Path.home() / "workspace" / ".build-test-review-fixes.db"
+    scratch = tmp_path / "index.db"
     try:
         monkeypatch.setattr(
             sys, "argv",
@@ -364,6 +364,22 @@ def test_build_script_end_to_end(monkeypatch):
                 RagChunk.domain == "company")).scalars().first()
         assert company_chunk.source_sha == meta["company_sha"]
         s.close()
+        eng.dispose()
     finally:
         if scratch.exists():
             scratch.unlink()
+
+
+def test_build_script_uses_configured_database_by_default(monkeypatch, tmp_path):
+    from app.config import SETTINGS
+    from scripts.build_rag_index import main
+
+    database = tmp_path / "configured.db"
+    monkeypatch.setattr(SETTINGS, "database_url", f"sqlite:///{database.as_posix()}")
+    monkeypatch.setattr(sys, "argv", ["build_rag_index.py"])
+    monkeypatch.chdir(tmp_path)
+
+    assert main() == 0
+    assert database.exists()
+    assert not (tmp_path / "persona_dialogue.db").exists()
+    database.unlink()

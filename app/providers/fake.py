@@ -348,7 +348,7 @@ class FakeProvider:
                     "claims": [], "goal": "stop"}
         if goal == "handoff":
             return {"text": "Phần đặt cọc thì mình không xác nhận được đâu bạn ạ, "
-                    "để mình chuyển ý này cho bên xử lý nhé.",
+                            "bạn liên hệ trực tiếp đại lý để được hướng dẫn nhé.",
                     "claims": [], "goal": "handoff"}
         if "ai_identity" in types:
             return {"text": "Mình là persona hư cấu do hệ thống tạo ra để chia sẻ "

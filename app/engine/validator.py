@@ -276,11 +276,10 @@ def validate(final: dict, ctx: dict) -> list[str]:
     retrieved = ctx.get("retrieved", {})  # ref_id -> (kind, value, meta)
     claims = final.get("claims", []) or []
     # 1. Cam kết giao dịch ngoài quyền.
-    if goal != "handoff":
-        for p in TRANSACTION_PHRASES:
-            if p in low:
-                errors.append(f"transaction_confirmation: chứa '{p}' "
-                              "nhưng lượt này không phải handoff")
+    for p in TRANSACTION_PHRASES:
+        if p in low:
+            errors.append(f"transaction_confirmation: chứa '{p}' "
+                          "nhưng hệ thống không xác nhận giao dịch")
     # 2. Xin thông tin riêng tư ở kênh public. Ngoại lệ: luồng lead
     # (khách đã thể hiện quan tâm mua xe, xem pipeline _lead_capture)
     # được hỏi SĐT — nhưng KHÔNG bao giờ được hỏi địa chỉ nhà.
