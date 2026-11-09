@@ -183,6 +183,14 @@ Docker Compose (app + Postgres 16):
 docker compose up --build   # app ở http://127.0.0.1:8000/
 ```
 
+Chạy với Neon hiện tại (không dựng Postgres local):
+
+```bash
+docker compose -f docker-compose.neon.yml up --build
+```
+
+Yêu cầu `.env` có `DATABASE_URL` (Neon) và `OPENROUTER_API_KEY`.
+
 Lưu ý: seed đồng bộ danh sách persona từ file nguồn và xóa dữ liệu của
 persona không còn trong nguồn. Kiểm tra dữ liệu trước khi seed trên DB đang dùng.
 

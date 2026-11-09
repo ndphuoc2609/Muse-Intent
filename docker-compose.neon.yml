@@ -1,0 +1,16 @@
+# Chạy app với Neon hiện tại (không dựng Postgres local).
+#
+#   docker compose -f docker-compose.neon.yml up --build
+#
+# Yêu cầu .env có DATABASE_URL (Neon) và OPENROUTER_API_KEY.
+# LLM_PROVIDER mặc định openrouter ở đây (file gốc mặc định fake).
+services:
+  app:
+    build: .
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openai/gpt-6-luna}
+    ports:
+      - "8000:8000"
