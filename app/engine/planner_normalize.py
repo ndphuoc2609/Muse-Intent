@@ -94,6 +94,17 @@ def _data_needs(values) -> list[str]:
     return out or ["none"]
 
 
+def _intent_score_llm(value) -> float | None:
+    """Điểm shadow do model chấm: chỉ nhận số, kẹp 0-100, còn lại None.
+    Không dùng để quyết định gì (xem Planner.intent_score_llm)."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return min(100.0, max(0.0, float(value)))
+    except (TypeError, ValueError):
+        return None
+
+
 def normalize_planner_args(args: dict) -> dict:
     args = args or {}
     direction = args.get("response_direction") or {}
@@ -140,6 +151,7 @@ def normalize_planner_args(args: dict) -> dict:
             "followup_key": direction.get("followup_key"),
         },
         "resolved_reference": args.get("resolved_reference") or {},
+        "intent_score_llm": _intent_score_llm(args.get("intent_score_llm")),
     }
 
 

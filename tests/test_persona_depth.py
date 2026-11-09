@@ -25,42 +25,49 @@ def test_taxonomy_seed_idempotent(session):
     assert not is_known_tag("tag_bia_khong_co")
 
 
-def test_story_tags_categories_activate_on_sent(pipe, session):
+def test_story_tags_categories_activate_on_sent(session):
+    # Story mới chỉ đi qua luồng admin (find_gaps -> validate -> publish),
+    # không còn propose_story trong lượt. Publish phải tạo story active
+    # kèm tag assignment active; category lạ bị chặn ở validate.
     seed_taxonomy(session)
-    # Test này cần persona CHƯA có story để Fake propose story mới;
-    # AUTO_* nào cũng đã có memory story nên dùng fixture không story.
-    from conftest import make_persona
-    pid = make_persona(session, "fix-no-stories",
-                       {"vehicle_model": "Hyundai Creta"})
-    r = turn(pipe, "Bác có kỷ niệm nào đáng nhớ với xe không?",
-             persona_id=pid)
-    assert r.status == "sent"
-    assert r.saved_stories, "Fake phải propose story và lưu vào saved_stories"
-    st = r.saved_stories[0]
-    assert st["tags"], "propose_story phải trả tags"
-    assert st["story_categories"], "propose_story phải trả categories"
-    assert "usage.long_distance_trip" in st["tags"]
-    # Đã sent -> tag assignment phải active, không còn pending.
-    row = session.query(PersonaStory).filter_by(
-        event_id=st["event_id"]).first()
+    d = EnrichmentDraft(
+        persona_id="hoang-nam", kind="story",
+        payload={"title": "Về quê cuối tuần",
+                 "summary": "Đi Creta về Nam Định cuối tuần",
+                 "body": "Cuối tuần mình lái Creta về Nam Định, đường êm.",
+                 "event_type": "trip",
+                 "entities": {"vehicle": "Hyundai Creta", "places": ["Nam Định"]}},
+        reason="test story tags", anchor_refs=[],
+        proposed_tags=["usage.long_distance_trip"],
+        proposed_categories=["frequent_road_trip"],
+        conditions=[], conflicts=[])
+    session.add(d)
+    session.commit()
+    assert validate_draft(session, d) == []
+    out = publish_draft(session, d.id)
+    assert out["ok"] and out.get("created", {}).get("event_id")
+    eid = out["created"]["event_id"]
+    row = session.query(PersonaStory).filter_by(event_id=eid).first()
     assert row is not None and row.status == "active"
     tags = session.query(TagAssignment).filter_by(
-        entity_type="story", entity_id=st["event_id"]).all()
+        entity_type="story", entity_id=eid).all()
     assert tags and all(t.status == "active" for t in tags)
-    assert row.tellable_policy == "on_relevance"
+    assert "usage.long_distance_trip" in [t.tag for t in tags]
 
 
-def test_story_unknown_category_blocked(pipe, session):
-    from app.engine.tools import ToolExecutor
-    from app.models import Thread
-    # Tạo thread tối thiểu để ToolExecutor có context.
-    r = turn(pipe, "Bác đang đi xe gì?")
-    thread = session.query(Thread).filter_by(id=r.thread_id).first()
-    ex = ToolExecutor(session, "AUTO_029", thread.id, "actor-1")
-    res = ex.execute("propose_story", {
-        "summary": "Chuyến đi đâu đó.", "body": "Đi đâu đó.",
-        "tags": ["usage.city_commute"], "categories": ["category_bia"]})
-    assert res.status == "CONFLICT"
+def test_story_unknown_category_blocked(session):
+    seed_taxonomy(session)
+    d = EnrichmentDraft(
+        persona_id="hoang-nam", kind="story",
+        payload={"title": "Chuyến đi đâu đó.", "summary": "Chuyến đi đâu đó.",
+                 "body": "Đi đâu đó.", "event_type": "trip", "entities": {}},
+        reason="test category lạ", anchor_refs=[],
+        proposed_tags=["usage.city_commute"],
+        proposed_categories=["category_bia"],
+        conditions=[], conflicts=[])
+    session.add(d)
+    session.commit()
+    assert any("unknown_category" in e for e in validate_draft(session, d))
 
 
 def test_retrieval_prefers_untold_and_relevant(session):

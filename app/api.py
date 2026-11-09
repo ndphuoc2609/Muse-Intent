@@ -12,17 +12,18 @@ from sqlalchemy import select
 
 from .config import SETTINGS
 from .db import init_db, make_engine, session_factory
+from .engine.delivery_state import can_recover, finish_delivery
 from .engine.enrichment import find_gaps, publish_draft, validate_draft
 from .engine.fake_sender import FakeSender
 from .engine.persona_validator import validate_persona
 from .engine.pipeline import Pipeline
 from .engine.reactions import get_reactions, toggle_reaction
 from .engine.taxonomy import CATEGORIES, TAGS, TAXONOMY_VERSION
-from .engine.tools import canonical_view
-from .models import (EnrichmentDraft, Message, Persona, PersonaCategory,
+from .engine.tools import ToolExecutor, canonical_view
+from .models import (Delivery, EnrichmentDraft, Message, Persona, PersonaCategory,
                      PersonaFact, PersonaPerspective, PersonaProfile,
                      PersonaStory, PersonaStyleGuide, RetrievalLog,
-                     TagAssignment, Thread)
+                     TagAssignment, Thread, TurnIdempotency)
 from .providers.openrouter import make_provider
 from .schemas import TurnRequest
 from .seed import seed
@@ -51,6 +52,28 @@ app = FastAPI(title="persona-dialogue", version="1.0.0")
 
 def _session():
     return Session()
+
+
+def _partner_tenant(x_api_key: str | None) -> str | None:
+    """Partner mode (PARTNER_API_KEY đã cấu hình): endpoint partner yêu
+    cầu đúng key, trả về tenant của key đó. Sandbox (chưa cấu hình
+    key): không yêu cầu auth, trả None (không giới hạn tenant)."""
+    if not SETTINGS.partner_mode:
+        return None
+    if x_api_key != SETTINGS.partner_api_key:
+        raise HTTPException(401, "X-API-Key không hợp lệ")
+    return SETTINGS.partner_tenant
+
+
+def _check_thread_tenant(thread: Thread | None, tenant: str | None) -> None:
+    """Partner chỉ được chạm thread thuộc tenant của mình (kể cả thread
+    tenant NULL — thread sandbox không thuộc partner nào)."""
+    if tenant is None:
+        return
+    if thread is None:
+        raise HTTPException(404, "thread không tồn tại")
+    if thread.tenant != tenant:
+        raise HTTPException(403, "thread không thuộc tenant này")
 
 
 @app.get("/health")
@@ -112,23 +135,28 @@ class CreateThreadRequest(BaseModel):
     post_id: str = "post-1"
     post_text: str = ""
     post_vehicle_models: list[str] = []
+    tenant: str | None = None
 
 
 @app.post("/threads")
-def create_thread(req: CreateThreadRequest):
+def create_thread(req: CreateThreadRequest,
+                  x_api_key: str | None = Header(default=None, alias="X-API-Key")):
     """Tạo bài viết (thread) cho một persona đã chọn — bước 2 của sandbox."""
+    tenant = _partner_tenant(x_api_key)
     with _session() as s:
         p = s.get(Persona, req.persona_id)
         if not p:
             raise HTTPException(404, "persona không tồn tại — bấm Seed trước")
         t = Thread(persona_id=req.persona_id, post_id=req.post_id,
                    post_text=req.post_text,
-                   post_vehicle_models=req.post_vehicle_models)
+                   post_vehicle_models=req.post_vehicle_models,
+                   tenant=tenant if tenant is not None else req.tenant)
         s.add(t)
         s.commit()
         return {"thread_id": t.id, "persona_id": t.persona_id,
                 "post_id": t.post_id, "post_text": t.post_text,
-                "post_vehicle_models": t.post_vehicle_models}
+                "post_vehicle_models": t.post_vehicle_models,
+                "tenant": t.tenant}
 
 
 @app.get("/threads/{thread_id}")
@@ -145,12 +173,18 @@ def thread_detail(thread_id: str):
 @app.post("/threads/{thread_id}/turns")
 def turn(thread_id: str, req: TurnRequest,
          idempotency_key: str | None = Header(default=None,
-                                              alias="Idempotency-Key")):
+                                              alias="Idempotency-Key"),
+         x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+    tenant = _partner_tenant(x_api_key)
     # Thread trong body phải khớp thread trên URL (binding, §3).
     if req.thread_id and req.thread_id != thread_id:
         raise HTTPException(400, "thread_id trong body khác URL")
     req.thread_id = thread_id if thread_id != "new" else None
+    if tenant is not None:
+        req.tenant = tenant
     with _session() as s:
+        if tenant is not None and req.thread_id:
+            _check_thread_tenant(s.get(Thread, req.thread_id), tenant)
         pipe = Pipeline(s, _require_provider(), SENDER)
         result = pipe.run(req, idempotency_key=idempotency_key)
         return JSONResponse(result.model_dump(),
@@ -160,10 +194,185 @@ def turn(thread_id: str, req: TurnRequest,
 @app.post("/turns")
 def turn_new(req: TurnRequest,
              idempotency_key: str | None = Header(default=None,
-                                                  alias="Idempotency-Key")):
+                                                  alias="Idempotency-Key"),
+             x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+    tenant = _partner_tenant(x_api_key)
+    if tenant is not None:
+        req.tenant = tenant
     with _session() as s:
+        if tenant is not None and req.thread_id:
+            _check_thread_tenant(s.get(Thread, req.thread_id), tenant)
         pipe = Pipeline(s, _require_provider(), SENDER)
         return pipe.run(req, idempotency_key=idempotency_key)
+
+
+def _confirmation_actor_id(s, msg: Message) -> str:
+    """Actor của lượt tạo ra message này: từ TurnIdempotency, fallback
+    qua user message cha (persona reply có parent = user message)."""
+    rec = s.execute(
+        select(TurnIdempotency).where(
+            TurnIdempotency.persona_message_id == msg.id)).scalars().first()
+    if rec is not None:
+        return rec.actor_id
+    if msg.parent_message_id:
+        parent = s.get(Message, msg.parent_message_id)
+        if parent is not None and parent.actor_id:
+            return parent.actor_id
+    return ""
+
+
+def _record_delivery_report(s, msg: Message, req) -> None:
+    trace = dict(msg.trace or {})
+    reports = list(trace.get("delivery_reports") or [])
+    reports.append({"status": req.status,
+                    "channel_message_id": req.channel_message_id,
+                    "error": req.error})
+    trace["delivery_reports"] = reports
+    msg.trace = trace
+    s.commit()
+
+
+def _flag_delivery_conflict(s, msg: Message, req) -> None:
+    """Báo mâu thuẫn với trạng thái đã xác nhận: ghi lại để đối soát,
+    không đổi trạng thái message."""
+    trace = dict(msg.trace or {})
+    trace["delivery_conflict"] = {
+        "previous_status": msg.status, "reported": req.status,
+        "channel_message_id": req.channel_message_id,
+        "error": req.error}
+    msg.trace = trace
+    s.commit()
+
+
+def _delivery_row(s, message_id: str):
+    return s.execute(
+        select(Delivery).where(Delivery.message_id == message_id)
+    ).scalars().first()
+
+
+def _confirm_sent(s, msg: Message, thread: Thread, req) -> None:
+    trace = dict(msg.trace or {})
+    snapshot = trace.get("delivery_recovery")
+    actor_id = _confirmation_actor_id(s, msg)
+    if snapshot:
+        executor = ToolExecutor(s, thread.persona_id, thread.id, actor_id)
+        if can_recover(s, snapshot, msg, thread.persona_id, actor_id):
+            finish_delivery(s, executor, snapshot, msg, recovered=True)
+        else:
+            # Canon đã đổi sau khi stage: message thì đã gửi thật trên
+            # kênh, nhưng không kích hoạt fact cũ — reject để khỏi ô
+            # nhiễm lượt sau, ghi dấu để đối soát.
+            for field, ids in (
+                    ("pending_persona_fact_ids", snapshot.get("pending_persona_fact_ids") or []),
+                    ("pending_story_ids", snapshot.get("pending_story_ids") or []),
+                    ("pending_addendum_ids", snapshot.get("pending_addendum_ids") or []),
+                    ("pending_customer_fact_ids", snapshot.get("pending_customer_fact_ids") or []),
+                    ("pending_tag_assignment_ids", snapshot.get("pending_tag_assignment_ids") or [])):
+                setattr(executor, field, list(ids))
+            executor.reject_pending()
+            trace["delivery_recovery_blocked"] = True
+    msg.status = "sent"
+    row = _delivery_row(s, msg.id)
+    if row is not None:
+        row.status = "sent"
+        row.error = None
+    else:
+        s.add(Delivery(message_id=msg.id, sender="partner", status="sent"))
+    rec = s.execute(
+        select(TurnIdempotency).where(
+            TurnIdempotency.persona_message_id == msg.id)).scalars().first()
+    if rec is not None:
+        rec.status = "sent"
+    msg.trace = trace
+    s.commit()
+
+
+def _confirm_failed(s, msg: Message, thread: Thread, req) -> None:
+    trace = dict(msg.trace or {})
+    snapshot = trace.get("delivery_recovery")
+    if snapshot:
+        executor = ToolExecutor(s, thread.persona_id, thread.id,
+                                _confirmation_actor_id(s, msg))
+        for field in ("pending_persona_fact_ids", "pending_story_ids",
+                      "pending_addendum_ids", "pending_customer_fact_ids",
+                      "pending_tag_assignment_ids"):
+            setattr(executor, field, list(snapshot.get(field) or []))
+        executor.reject_pending()
+    msg.status = "error"
+    row = _delivery_row(s, msg.id)
+    if row is not None:
+        row.status = "failed"
+        row.error = req.error
+    else:
+        s.add(Delivery(message_id=msg.id, sender="partner",
+                       status="failed", error=req.error))
+    rec = s.execute(
+        select(TurnIdempotency).where(
+            TurnIdempotency.persona_message_id == msg.id)).scalars().first()
+    if rec is not None:
+        rec.status = "error"
+    msg.trace = trace
+    s.commit()
+
+
+class DeliveryConfirmationRequest(BaseModel):
+    status: str  # sent | failed | unknown
+    channel_message_id: str | None = None
+    error: str | None = None
+
+
+@app.post("/threads/{thread_id}/messages/{message_id}/delivery-confirmation")
+def confirm_delivery(thread_id: str, message_id: str,
+                     req: DeliveryConfirmationRequest,
+                     x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+    """Partner báo kết quả gửi trên kênh thật (Phase 3b).
+
+    Partner mode: reply chỉ ở ready_for_delivery cho tới khi partner
+    xác nhận. sent -> kích hoạt pending candidates từ snapshot;
+    failed -> reject pending; unknown -> giữ nguyên chờ báo lại.
+    Idempotent: báo lại cùng status trả kết quả cũ, không kích hoạt
+    lần hai. Báo mâu thuẫn (đã sent rồi báo failed, hoặc ngược lại)
+    -> 409 + ghi trace.delivery_conflict để đối soát.
+    """
+    tenant = _partner_tenant(x_api_key)
+    if req.status not in ("sent", "failed", "unknown"):
+        raise HTTPException(400, "status phải là sent | failed | unknown")
+    with _session() as s:
+        msg = s.get(Message, message_id)
+        if not msg or msg.thread_id != thread_id:
+            raise HTTPException(404, "message không tồn tại")
+        thread = s.get(Thread, thread_id)
+        _check_thread_tenant(thread, tenant)
+        if msg.status in ("draft", "sending", "review"):
+            raise HTTPException(
+                409, "message chưa ở trạng thái ready_for_delivery")
+        if msg.status == "sent":
+            if req.status == "sent":
+                return {"message_id": msg.id, "status": "sent",
+                        "idempotent_replay": True}
+            _flag_delivery_conflict(s, msg, req)
+            raise HTTPException(
+                409, "message đã xác nhận sent, không thể báo lại "
+                     f"{req.status} — xem trace.delivery_conflict")
+        if msg.status == "error":
+            if req.status == "failed":
+                return {"message_id": msg.id, "status": "error",
+                        "idempotent_replay": True}
+            _flag_delivery_conflict(s, msg, req)
+            raise HTTPException(
+                409, "message đã xác nhận failed, không thể báo lại "
+                     f"{req.status} — xem trace.delivery_conflict")
+        # ready_for_delivery
+        if req.status == "unknown":
+            _record_delivery_report(s, msg, req)
+            return {"message_id": msg.id, "status": "ready_for_delivery"}
+        if req.status == "sent":
+            _confirm_sent(s, msg, thread, req)
+            _record_delivery_report(s, msg, req)
+            return {"message_id": msg.id, "status": "sent"}
+        _confirm_failed(s, msg, thread, req)
+        _record_delivery_report(s, msg, req)
+        return {"message_id": msg.id, "status": "error"}
 
 
 def _iso_utc(dt):

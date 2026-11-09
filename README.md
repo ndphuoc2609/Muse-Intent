@@ -45,17 +45,23 @@ Khách (sandbox UI / API)
           khẳng định có dữ kiện trong văn bản phải được claim bao phủ;
           phát hiện xác nhận cọc, xin SĐT/địa chỉ nhà ở kênh public, hỏi lại
           khi opt-out, product sample không ghi rõ là mẫu; repair tối đa
-          MAX_VALIDATOR_REPAIRS vòng; sau đó gửi tự động kể cả khi vẫn còn
-          lỗi. Lỗi được giữ trong `validator_errors` và trace.
+          MAX_VALIDATOR_REPAIRS vòng. Lỗi blocking (sai nguồn/sai xe/dữ
+          liệu cá nhân/opt-out/chốt giao dịch/không có nguồn) -> giữ ở
+          `review`, KHÔNG gửi. Lỗi soft (giọng điệu/câu hỏi chung) -> sửa
+          1 vòng rồi gửi kèm lỗi trong `validator_errors` và trace.
        4. Cập nhật QuestionState: chỉ ANSWERED khi planner nêu đúng key;
           chuyển chủ đề giữ nguyên pending, không tự redirected; followup
           chỉ được tạo khi delivery thành công.
-       5. FakeSender: chỉ khi sent mới activate proposals, ghi Delivery +
-          told_in_message_id + story_told (kể cả story truy xuất lại).
-          Gửi lỗi -> status error, proposals bị reject, story chưa bị
-          đánh dấu đã kể. Retry cùng key dùng lại draft và khôi phục dữ kiện
-          khi gửi thành công; nếu hội thoại hoặc dữ kiện liên quan đã đổi,
-          hoặc draft cũ thiếu thông tin phục hồi, hệ thống từ chối gửi lại.
+       5. FakeSender (sandbox) / partner mode: chỉ khi sent mới activate
+          proposals, ghi Delivery + told_in_message_id + story_told (kể cả
+          story truy xuất lại). Partner mode (`PARTNER_API_KEY` đã cấu hình)
+          không gọi sender: reply stage ở `ready_for_delivery`, chỉ kích
+          hoạt khi partner xác nhận `sent` qua endpoint delivery-confirmation
+          (xem docs/api-integration.md). Gửi lỗi -> status error, proposals
+          bị reject, story chưa bị đánh dấu đã kể. Retry cùng key dùng lại
+          draft và khôi phục dữ kiện khi gửi thành công; nếu hội thoại hoặc
+          dữ kiện liên quan đã đổi, hoặc draft cũ thiếu thông tin phục hồi,
+          hệ thống từ chối gửi lại.
        Chi tiết đầy đủ: docs/improvement-report.md (branch
        improve/claim-history-idempotency, 2026-10-30).
   -> Message (draft/sent/error) + trace đầy đủ cho sandbox
@@ -63,7 +69,10 @@ Khách (sandbox UI / API)
 
 **MODEL làm gì:** hiểu tiếng Việt, nhận diện nhiều ý/lượt, giải quyết tham
 chiếu (“xe này”, “như vậy”) từ context, quyết định mục tiêu, có hỏi thêm
-hay không, sinh lời đáp tự nhiên, đề xuất story/fact mới theo contract.
+hay không, sinh lời đáp tự nhiên, đề xuất customer fact theo contract.
+Canon persona (fact/story) KHÔNG tạo trong lượt chat nữa — khi canon thiếu,
+model trả lời tự nhiên là chưa chắc; bổ sung canon qua luồng admin draft
+(find_gaps -> validate -> publish).
 
 **ENGINE làm gì:** binding, context đã kiểm chứng, tool, schema/evidence/
 quyền/nhất quán, lưu state + history, transaction ngắn + version check,
@@ -272,14 +281,14 @@ Một thread, actor-1, bài viết về Creta:
 
 | Lượt | Khách | Trạng thái | Reply (rút gọn) |
 |---|---|---|---|
-| 1. Hỏi màu xe | Bác đi xe màu gì thế? | sent | Mình đang đi xe màu trắng đó bạn. (fact mới do propose -> lưu, rồi mới trả lời) |
+| 1. Hỏi màu xe (canon chưa có) | Bác đi xe màu gì thế? | sent | Màu xe thì mình chưa chắc, để mình xem lại đã nhé. (không tự chọn màu, không tạo fact trong lượt) |
 | 2. Quan tâm mua | Tôi cũng muốn mua một chiếc như vậy. | sent | Mình đang đi Hyundai Creta đó bạn. Bạn thích mẫu này ở điểm nào nhất? (buying interest, KHÔNG handoff) |
 | 3. Hỏi hộ người khác | Em đang cân nhắc con này cho bố. | sent | Mình đang đi Hyundai Creta đó bạn. (intended_user = bố, không gán cho self) |
-| 4. Tạo story | Bác có kỷ niệm nào đáng nhớ với xe không? | sent | Đi Creta về Nam Định cuối tuần... (story mới, event_id evt_..., fictional_generated) |
+| 4. Kể story canon | Bác có kỷ niệm nào đáng nhớ với xe không? | sent | Đi Creta về Nam Định cuối tuần... (story canon đã seed, không tạo story mới trong lượt) |
 | 5. Truy xuất story cũ | Kể lại chuyến đi đó đi bác. | sent | Cùng summary trên, không tạo story mới |
-| 6. Bổ sung addendum | Đi cùng ai thế bác? | sent | Chuyến đó mình đi cùng cả nhà... (addendum, story lên version 2, body gốc giữ nguyên) |
+| 6. Hỏi lại story | Đi cùng ai thế bác? | sent | Hôm đó mình đi cùng cả nhà... (kể từ story/addendum canon, không tạo addendum trong lượt) |
 | 7. Hỏi product fact | Giá Creta bản cao nhất bao nhiêu? | sent | 599 triệu đồng (giá mẫu, chưa phải giá thực tế) |
-| 8. Khách muốn dừng | Thôi, mình không muốn tiếp tục nữa. | sent | Ok bạn, mình dừng ở đây nhé. (không hỏi thêm) |
+| 8. Khách muốn dừng | Thôi, mình không muốn tiếp tục nữa. | sent | Dạ, mình hiểu rồi, mình dừng ở đây nhé. Cảm ơn bạn đã trò chuyện! (ack xác nhận, không gọi LLM, không hỏi thêm) |
 
 Lưu ý: ví dụ 1 trong đề bài dùng Lexus RX 350; transcript dùng persona
 Creta nên reply là Creta — logic tham chiếu (“như vậy” -> xe trong bài)

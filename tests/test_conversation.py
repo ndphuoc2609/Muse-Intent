@@ -25,19 +25,25 @@ def test_ask_purchase_time_and_family_not_price(pipe, session):
 
 
 def test_ask_missing_fact_proposes_then_answers(pipe, session):
-    # Màu xe chưa seed -> propose -> engine lưu -> reply dùng fact đó.
+    # Màu xe chưa có trong canon: KHÔNG tự chọn màu, không tạo fact
+    # trong lượt (Phase 2c) — trả lời thẳng là chưa chắc.
     r = turn(pipe, "Bác đi xe màu gì thế?")
     assert r.status == "sent"
-    assert "trắng" in (r.reply_text or "")
-    # Lượt sau đọc lại fact đã lưu, không tạo thêm fact trùng.
+    assert "chưa chắc" in (r.reply_text or "")
+    assert "trắng" not in (r.reply_text or "")
+    from app.models import PersonaFact
+    assert session.query(PersonaFact).filter_by(
+        persona_id="AUTO_029", fact_key="vehicle_color").count() == 0
+    # Lượt sau vẫn chưa chắc, không bịa thêm.
     r2 = turn(pipe, "Bác đi xe màu gì thế?", thread_id=r.thread_id)
-    assert "trắng" in (r2.reply_text or "")
+    assert "chưa chắc" in (r2.reply_text or "")
 
 
 def test_multi_intent_one_turn(pipe):
     r = turn(pipe, "Bác đi xe màu gì? Em đang cân nhắc con này cho bố.")
     assert r.status == "sent"
-    assert "trắng" in (r.reply_text or "")
+    # Màu chưa có trong canon -> chưa chắc, không bịa "trắng".
+    assert "chưa chắc" in (r.reply_text or "")
     facts = r.saved_customer_facts
     # Người dùng xe dự kiến là bố, KHÔNG phải self.
     assert any(f["subject"] == "third_person" and f["relation"] == "bố"
@@ -74,17 +80,40 @@ def test_budget_question_not_marked_answered_on_topic_change(pipe, session):
     assert qs and all(q.status != "answered" for q in qs)
 
 
-def test_opt_out_no_followup(pipe):
+def test_opt_out_no_followup(pipe, session):
+    # Stop được detector bắt ngay đầu lượt: ack xác nhận ngắn, KHÔNG
+    # gọi LLM nên TurnResponse không có planner; không hỏi thêm.
+    from app.engine.contact_state import STOP_ACK_TEXT
+    from app.models import QuestionState
     r = turn(pipe, "Thôi, mình không muốn tiếp tục nữa.")
-    assert r.planner["goal"] == "stop"
     assert r.status == "sent"
+    assert r.reply_text == STOP_ACK_TEXT
     assert "?" not in (r.reply_text or "")
+    assert r.trace.get("contact_stop") is True
+    assert session.query(QuestionState).filter_by(
+        thread_id=r.thread_id).count() == 0
 
 
-def test_short_affirmation_context(pipe):
+def test_short_affirmation_context(pipe, session):
+    from app.models import QuestionState
     r1 = turn(pipe, "Tôi cũng muốn mua một chiếc như vậy.")
+    # Câu hỏi đang chờ là câu hỏi mở ("thích điểm nào nhất?") nên
+    # "Ừ" không phải đáp án -> gate bỏ qua, câu hỏi giữ nguyên pending.
     r2 = turn(pipe, "Ừ", thread_id=r1.thread_id)
-    assert r2.status == "sent"
+    assert r2.status == "skipped"
+    q = session.query(QuestionState).filter_by(
+        thread_id=r1.thread_id, question_key="like_point").one()
+    assert q.status == "pending"
+    # Câu hỏi đang chờ dạng có/không thì "Ừ" là đáp án -> vào pipeline.
+    session.add(QuestionState(
+        thread_id=r1.thread_id, actor_id="actor-1",
+        question_key="dealer_intro",
+        question_text="Bạn có muốn mình giới thiệu đại lý không?",
+        status="pending"))
+    session.commit()
+    r3 = turn(pipe, "Ừ", thread_id=r1.thread_id)
+    assert r3.status == "sent"
+    assert session.get(QuestionState, q.id).status == "pending"
 
 
 def test_ai_identity_disclosure(pipe):

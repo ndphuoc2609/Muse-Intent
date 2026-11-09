@@ -1,4 +1,12 @@
-"""A newly created story and its addendum can be restored together."""
+"""A story retold from canon: recovery must refuse it if the active
+revision changed since the draft was made.
+
+(In-turn story+addendum creation is gone — Phase 2c removed
+propose_story/propose_addendum — so the old
+test_retry_restores_story_and_addendum_created_in_same_turn has no
+live producer path anymore and was deleted.)
+"""
+
 import json
 
 import pytest
@@ -6,69 +14,9 @@ from sqlalchemy.orm import sessionmaker
 
 from app.engine.fake_sender import FakeSender
 from app.engine.pipeline import Pipeline
-from app.models import PersonaStory, StoryRevision, StoryTold
+from app.models import PersonaStory, StoryRevision
 from app.providers.base import ProviderResult, ToolCall
 from conftest import make_persona, turn
-
-
-class StoryAndAddendumProvider:
-    def chat(self, messages, tools):
-        results = {}
-        for message in messages:
-            if message.get("role") == "tool":
-                result = json.loads(message["content"])
-                results[result.get("tool")] = result
-        if "plan_turn" not in results:
-            return ProviderResult(tool_calls=[ToolCall("plan_turn", {
-                "intents": [{"type": "ask_persona", "subject": "persona",
-                             "normalized": "hỏi kỷ niệm", "evidence": "Bác kể kỷ niệm đi"}],
-                "goal": "share_experience"})])
-        if "propose_story" not in results:
-            return ProviderResult(tool_calls=[ToolCall("propose_story", {
-                "summary": "Mình đi Creta về quê.",
-                "body": "Mình đi Creta về quê.", "event_type": "trip",
-                "entities": {"vehicle": "Hyundai Creta"},
-                "tags": [], "categories": []})])
-        event_id = results["propose_story"]["data"]["event_id"]
-        if "propose_addendum" not in results:
-            return ProviderResult(tool_calls=[ToolCall("propose_addendum", {
-                "event_id": event_id, "content": "Hôm đó mình đi cùng cả nhà."})])
-        return ProviderResult(tool_calls=[ToolCall("submit_final_reply", {
-            "text": "Mình đi Creta về quê cùng cả nhà.",
-            "claims": [{"kind": "story", "ref_id": event_id,
-                        "value": "Mình đi Creta về quê cùng cả nhà"}],
-            "goal": "share_experience"})])
-
-
-def test_retry_restores_story_and_addendum_created_in_same_turn(session):
-    pid = make_persona(session, "retry-new-story-and-addendum",
-                       {"vehicle_model": "Hyundai Creta"})
-    text = "Bác kể kỷ niệm đi"
-    first = turn(Pipeline(session, StoryAndAddendumProvider(), FakeSender(True)),
-                 text, idem="story-and-addendum", persona_id=pid)
-    assert first.status == "error", first.validator_errors
-    assert first.reply_text and first.saved_stories
-    event_id = first.saved_stories[0]["event_id"]
-    story = session.get(PersonaStory, event_id)
-    revision = session.query(StoryRevision).filter_by(event_id=event_id).one()
-    revision_id = revision.id
-    assert story.status == "rejected" and revision.status == "rejected"
-
-    with sessionmaker(bind=session.get_bind())() as retry_session:
-        sender = FakeSender()
-        pipe = Pipeline(retry_session, StoryAndAddendumProvider(), sender)
-        recovered = turn(pipe, text, thread_id=first.thread_id,
-                         idem="story-and-addendum", persona_id=pid)
-        assert recovered.status == "sent", recovered.validator_errors
-        assert recovered.message_id == first.message_id
-        assert retry_session.get(PersonaStory, event_id).status == "active"
-        assert retry_session.get(PersonaStory, event_id).version == 2
-        assert retry_session.get(StoryRevision, revision_id).status == "active"
-        assert retry_session.query(StoryTold).filter_by(
-            event_id=event_id, message_id=first.message_id).count() == 1
-        replay = turn(pipe, text, thread_id=first.thread_id,
-                      idem="story-and-addendum", persona_id=pid)
-        assert replay.status == "sent" and len(sender.sent) == 1
 
 
 class RetellRevisionProvider:

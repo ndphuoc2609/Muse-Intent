@@ -15,6 +15,7 @@ import re
 import unicodedata
 
 from .base import ProviderResult, ToolCall
+from ..engine.gate import looks_yes_no
 
 
 def _strip(text: str) -> str:
@@ -151,22 +152,26 @@ class FakeProvider:
         if not needs:
             needs.add("none")
         # Câu hỏi cũ được trả lời? Chỉ khi nội dung khớp chủ đề câu hỏi
-        # (engine vẫn là bên đánh dấu cuối cùng, §10).
+        # (engine vẫn là bên đánh dấu cuối cùng, §10). Phản hồi ngắn
+        # ('ok', 'ừ') CHỈ trả lời được câu hỏi dạng có/không — câu hỏi
+        # mở ('thích điểm nào nhất?') thì 'ok' không phải đáp án.
         answered_keys: list[str] = []
         # Context engine hiện ghi "Câu hỏi đang chờ của actor hiện tại:"
-        # (regex cũ "Câu hỏi đang chờ:" không còn khớp, khiến answered
-        # keys của Fake luôn rỗng — lỗi stale parse, đã sửa ở đây).
+        # dạng "key (câu hỏi...), key2 (câu hỏi...)".
         mm = re.search(r"Câu hỏi đang chờ[^:]*:\s*([^\n]+)", context or "")
+        pending_pairs: list[tuple[str, str]] = []
         if mm and "(không có)" not in mm.group(1):
-            for part in mm.group(1).split(","):
-                key = part.strip().split(" ")[0]
-                if s in {"u", "um", "dung roi", "dung", "ok", "oke", "vang"}:
+            pending_pairs = re.findall(r"(\S+?)\s*\(([^)]*)\)",
+                                       mm.group(1))
+        for key, qtext in pending_pairs:
+            if s in {"u", "um", "dung roi", "dung", "ok", "oke", "vang"}:
+                if looks_yes_no(qtext):
                     answered_keys.append(key)
-                elif key == "budget" and _has(t, "triệu", "ngân sách", "tầm tiền"):
-                    answered_keys.append(key)
-                elif key == "like_point" and _has(t, "thích", "rộng", "êm",
-                                                  "tiết kiệm", "đẹp"):
-                    answered_keys.append(key)
+            elif key == "budget" and _has(t, "triệu", "ngân sách", "tầm tiền"):
+                answered_keys.append(key)
+            elif key == "like_point" and _has(t, "thích", "rộng", "êm",
+                                              "tiết kiệm", "đẹp"):
+                answered_keys.append(key)
         # Tham chiếu: "xe này/chiếc đó/như vậy/con này" -> context bài viết.
         resolved: dict = {}
         if _has(t, "xe này", "chiếc đó", "như vậy", "con này", "mẫu này"):
@@ -181,11 +186,29 @@ class FakeProvider:
                     resolved = {"text": "xe này", "resolved_to": None,
                                 "source": "inferred_context", "confidence": 0.4,
                                 "ambiguous_models": models}
+        # Shadow score (xem Planner.intent_score_llm): Fake chấm theo
+        # cùng rubric với model thật — điểm ưu tiên chú ý, KHÔNG phải
+        # confidence. Chỉ để so sánh với điểm rules, không quyết định gì.
+        if goal == "stop":
+            score_llm = 90.0
+        elif any(i["type"] in ("transaction", "share_need")
+                 for i in intents):
+            score_llm = 75.0
+        elif any(i["type"] == "ai_identity" for i in intents):
+            score_llm = 70.0
+        elif any(i["type"] in ("ask_persona", "ask_product")
+                 for i in intents):
+            score_llm = 65.0
+        elif any(i["type"] == "correction" for i in intents):
+            score_llm = 60.0
+        else:
+            score_llm = 20.0
         return {
             "intents": intents, "goal": goal, "data_needs": sorted(needs),
             "answered_question_keys": answered_keys,
             "ask_followup": ask_followup, "followup_purpose": followup_purpose,
             "followup_key": followup_key, "resolved_reference": resolved,
+            "intent_score_llm": score_llm,
         }
 
     # ---- vòng tool calling ----
@@ -222,6 +245,7 @@ class FakeProvider:
                 "known_customer": {}, "known_persona": {},
                 "data_needs": analysis["data_needs"],
                 "goal": analysis["goal"],
+                "intent_score_llm": analysis["intent_score_llm"],
                 "response_direction": {
                     "answer_first": True,
                     "ask_followup": analysis["ask_followup"],
@@ -261,6 +285,11 @@ class FakeProvider:
         return {}
 
     def _proposals(self, analysis, tool_results):
+        # Chỉ còn propose_customer_fact (dữ liệu của KHÁCH, không phải
+        # canon persona). Canon persona (fact/story/addendum) KHÔNG tạo
+        # trong lượt chat nữa — bổ sung qua luồng admin draft flow
+        # (find_gaps -> validate -> publish). Khi canon thiếu, _final
+        # trả lời tự nhiên là chưa chắc, không tự chọn giá trị.
         calls: list[ToolCall] = []
         types = [i["type"] for i in analysis["intents"]]
         # Customer facts từ các ý share_need / third_party.
@@ -282,52 +311,6 @@ class FakeProvider:
                         "subject": "self", "relation": None, "predicate": pred,
                         "value_raw": it["normalized"], "evidence": it["evidence"],
                         "source": "stated", "confidence": 0.85}))
-        facts = self._retrieved(tool_results, "get_persona_facts").get("data") or []
-        fact_keys = {f.get("fact_key") for f in facts if isinstance(f, dict)}
-        if any(i["type"] == "ask_persona" and "màu xe" in i["normalized"]
-               for i in analysis["intents"]) and "vehicle_color" not in fact_keys:
-            calls.append(ToolCall("propose_persona_fact", {
-                "fact_key": "vehicle_color", "value": "trắng",
-                "evidence": "khách hỏi màu xe, fact chưa có, đề xuất theo policy",
-                "source": "generated"}))
-        stories = self._retrieved(tool_results, "get_persona_stories").get("data") or []
-        if any(i["type"] == "ask_persona" and "kỷ niệm" in i["normalized"]
-               for i in analysis["intents"]) and not stories:
-            calls.append(ToolCall("propose_story", {
-                "title": "Chuyến về Nam Định cuối tuần",
-                "summary": "Đi Creta về Nam Định cuối tuần, đường trường êm, "
-                "cả nhà ngồi thoải mái.",
-                "body": "Cuối tuần mình lái Creta từ Cầu Giấy về Nam Định thăm nhà. "
-                "Đường trường xe chạy êm, người ngồi sau không bị mệt, "
-                "cốp đủ đồ cho cả nhà.",
-                "event_type": "trip", "event_date": None,
-                "event_date_precision": "unknown",
-                "entities": {"vehicle": "Hyundai Creta",
-                             "places": ["Cầu Giấy", "Nam Định"],
-                             "persons": []},
-                # Fake cũng phải tuân contract Luna: story phải kèm
-                # tags + categories để engine update DB.
-                "tags": ["usage.long_distance_trip",
-                         "usage.family_weekend",
-                         "experience.long_distance_trip"],
-                "categories": ["family_daily_use", "frequent_road_trip"],
-                "participants": [{"name": "gia đình", "relation": "family"}],
-                "context": "Cuối tuần về Nam Định thăm nhà.",
-                "concern_or_choice": "Đi xa có mệt không, cốp có đủ đồ không.",
-                "action": "Lái Creta về Nam Định cuối tuần.",
-                "outcome": "Đường trường êm, người ngồi sau không mệt.",
-                "feeling_or_lesson": "Đi xa cùng gia đình thoải mái hơn mình nghĩ.",
-                "canonical_facts": ["Đi Creta về Nam Định cuối tuần"],
-                "tellable_policy": "on_relevance",
-                "related_need_topics": ["family_trip", "long_distance_trip"]}))
-        if stories and any(i["type"] == "ask_persona" and
-                           ("cung ai" in _strip(i["normalized"]) or
-                            "cung" in _strip(i["evidence"]))
-                           for i in analysis["intents"]):
-            calls.append(ToolCall("propose_addendum", {
-                "event_id": stories[0].get("event_id", ""),
-                "content": "Chuyến đó mình đi cùng cả nhà, bố mẹ ngồi sau khen xe êm.",
-                "entities": {"persons": ["gia đình"]}}))
         return calls
 
     def _final(self, analysis, tool_results, context):
@@ -337,12 +320,6 @@ class FakeProvider:
         by_key = {f.get("fact_key"): f for f in facts if isinstance(f, dict)}
         stories = self._retrieved(tool_results, "get_persona_stories").get("data") or []
         products = self._retrieved(tool_results, "get_product_facts").get("data") or []
-        proposed_facts = [r for r in tool_results
-                          if r.get("tool") == "propose_persona_fact"
-                          and r.get("status") == "FOUND"]
-        proposed_stories = [r for r in tool_results
-                            if r.get("tool") == "propose_story"
-                            and r.get("status") == "FOUND"]
         if goal == "stop":
             return {"text": "Ok bạn, mình dừng ở đây nhé. Khi nào cần thì nhắn lại.",
                     "claims": [], "goal": "stop"}
@@ -364,11 +341,6 @@ class FakeProvider:
                 parts.append(f"Mình đang đi xe màu {f['value']} đó bạn.")
                 claims.append({"kind": "persona", "ref_id": f["id"],
                                "value": f["value"]})
-            elif proposed_facts:
-                pf = proposed_facts[0].get("data") or {}
-                parts.append(f"Mình đang đi xe màu {pf.get('value', 'trắng')} đó bạn.")
-                claims.append({"kind": "persona", "ref_id": pf.get("id"),
-                               "value": pf.get("value", "trắng")})
             else:
                 parts.append("Màu xe thì mình chưa chắc, để mình xem lại đã nhé.")
         if any(i["type"] == "ask_persona" and "xe persona đang đi" in i["normalized"]
@@ -387,17 +359,16 @@ class FakeProvider:
                                "value": f["value"]})
         if any(i["type"] == "ask_persona" and "kỷ niệm" in i["normalized"]
                for i in analysis["intents"]):
-            if proposed_stories:
-                d = proposed_stories[0].get("data") or {}
-                parts.append(d.get("summary", ""))
-                claims.append({"kind": "story",
-                               "ref_id": d.get("event_id"),
-                               "value": d.get("summary", "")})
-            elif stories:
+            if stories:
                 st = stories[0]
                 parts.append(st.get("summary", ""))
                 claims.append({"kind": "story", "ref_id": st.get("event_id"),
                                "value": st.get("summary", "")})
+            else:
+                # Canon không có story hợp: nói thẳng là chưa nhớ ra,
+                # không bịa chuyến đi mới.
+                parts.append("Kỷ niệm thì mình chưa nhớ ra chuyến nào hợp "
+                             "để kể, để mình nghĩ thêm đã nhé.")
         if any(i["type"] == "ask_product" for i in analysis["intents"]):
             if products:
                 p = products[0]
@@ -421,16 +392,6 @@ class FakeProvider:
                                    "value": f["value"]})
                 else:
                     parts.append("Ừ, mình hiểu ý bạn rồi.")
-        proposed_addenda = [r for r in tool_results
-                            if r.get("tool") == "propose_addendum"
-                            and r.get("status") == "FOUND"]
-        if proposed_addenda:
-            d = proposed_addenda[0].get("data") or {}
-            addenda = d.get("addenda") or []
-            if addenda:
-                parts.append(addenda[-1])
-                claims.append({"kind": "story", "ref_id": d.get("event_id"),
-                               "value": addenda[-1]})
         if not parts:
             parts.append("Ừ, mình hiểu ý bạn rồi.")
         text = " ".join(parts)

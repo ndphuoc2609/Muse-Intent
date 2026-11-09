@@ -136,9 +136,36 @@ def test_pending_question_forces_pipeline(session):
     session.commit()
     counting = _CountingProvider(FakeProvider())
     pipe = Pipeline(session, counting, FakeSender())
-    r = pipe.run(_req("ok", thread_id=first.thread_id))
+    # Câu có nội dung thật vẫn vào pipeline (có thể là đáp án).
+    r = pipe.run(_req("Em ở Hà Nội", thread_id=first.thread_id))
     assert counting.calls >= 1
     assert r.status != "skipped"
+
+
+def test_ack_skips_open_pending_question_but_answers_yes_no(session):
+    first = turn(Pipeline(session, FakeProvider(), FakeSender()),
+                 "Em đang phân vân.")
+    session.add(QuestionState(thread_id=first.thread_id, actor_id="actor-1",
+                              question_key="area",
+                              question_text="Bạn ở khu vực nào?",
+                              status="pending"))
+    session.commit()
+    counting = _CountingProvider(FakeProvider())
+    pipe = Pipeline(session, counting, FakeSender())
+    # 'ok' không trả lời được câu hỏi mở -> bypass, không gọi LLM.
+    r = pipe.run(_req("ok", thread_id=first.thread_id))
+    assert counting.calls == 0
+    assert r.status == "skipped"
+    # Đổi câu hỏi chờ sang dạng có/không thì 'ok' là đáp án -> pipeline.
+    session.query(QuestionState).filter_by(
+        thread_id=first.thread_id).update(
+        {"question_text": "Cậu có muốn tham khảo sale không?"})
+    session.commit()
+    counting2 = _CountingProvider(FakeProvider())
+    pipe2 = Pipeline(session, counting2, FakeSender())
+    r2 = pipe2.run(_req("ok", thread_id=first.thread_id))
+    assert counting2.calls >= 1
+    assert r2.status != "skipped"
 
 
 def test_lead_signal_forces_pipeline(session):

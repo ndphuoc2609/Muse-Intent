@@ -15,7 +15,8 @@ TurnGoal = Literal[
     "answer_question", "share_experience", "clarify", "explore_need",
     "empathize", "stop", "handoff",
 ]
-TurnStatus = Literal["sent", "draft", "blocked", "review", "error", "skipped"]
+TurnStatus = Literal["sent", "draft", "blocked", "review", "error",
+                     "skipped", "ready_for_delivery"]
 
 
 class IntentItem(BaseModel):
@@ -60,6 +61,12 @@ class Planner(BaseModel):
     resolved_reference: dict[str, Any] = {}
     # VD: {"text": "xe này", "resolved_to": "Hyundai Creta",
     #      "source": "inferred_context", "confidence": 0.7}
+    # Điểm ưu tiên chú ý do MODEL tự chấm 0-100 (SHADOW, chạy song song
+    # với điểm rules_v1): cùng ý nghĩa với intent_score của rules — lượt
+    # này có cần persona chú ý/trả lời ngay không — KHÔNG phải
+    # confidence, KHÔNG phải xác suất. Engine chỉ ghi trace, không dùng
+    # để quyết định gate hay bất kỳ bước nào. None = model không chấm.
+    intent_score_llm: float | None = None
 
 
 class Claim(BaseModel):
@@ -100,6 +107,12 @@ class TurnRequest(BaseModel):
     text: str
     thread_id: str | None = None
     message_id: str | None = None
+    # Comment cha mà lượt này trả lời (branch): id của user message
+    # trong thread. None = lượt mới ở gốc thread (hành vi cũ).
+    parent_message_id: str | None = None
+    # Tenant gọi partner API (phải khớp tenant của API key khi partner
+    # mode bật). None = tenant mặc định của key.
+    tenant: str | None = None
 
 
 class TurnResponse(BaseModel):

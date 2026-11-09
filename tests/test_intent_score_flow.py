@@ -43,10 +43,13 @@ def test_replay_keeps_original_score_when_context_changes(session):
 
 
 def test_pending_question_increases_score_without_changing_gate(session):
+    # "ok" chỉ vào pipeline khi đáp án cho câu hỏi có/không đang chờ
+    # (Phase 2a: ack trước câu hỏi mở thì gate bỏ qua) — điểm 70 vẫn
+    # giữ nguyên vì câu hỏi đang chờ làm tăng độ ưu tiên.
     pipe = Pipeline(session, FakeProvider(), FakeSender())
     first = turn(pipe, "Bác đang đi xe gì?")
     session.add(QuestionState(thread_id=first.thread_id, actor_id="actor-1",
-                              question_key="need", question_text="Bạn muốn gì?",
+                              question_key="need", question_text="Bạn có muốn mua không?",
                               status="pending"))
     session.commit()
     result = turn(pipe, "ok", thread_id=first.thread_id)

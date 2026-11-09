@@ -150,6 +150,9 @@ class Thread(Base):
     post_id: Mapped[str] = mapped_column(String(128), default="post-1")
     post_text: Mapped[str] = mapped_column(Text, default="")
     post_vehicle_models: Mapped[dict] = mapped_column(JSON, default=list)
+    # Tenant sở hữu thread (partner mode): thread chỉ được truy cập
+    # bằng API key của đúng tenant đó. NULL = thread sandbox cũ.
+    tenant: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
@@ -161,7 +164,12 @@ class Message(Base):
     actor_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     role: Mapped[str] = mapped_column(String(32))  # user | persona | system
     text: Mapped[str] = mapped_column(Text)
-    # draft | sending | sent | blocked | review | error
+    # Message cha trong cây bình luận (branch): comment trả lời comment
+    # nào. NULL = message gốc của thread (bài viết / lượt đầu). Persona
+    # reply có parent = user message nó trả lời.
+    parent_message_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("messages.id"), nullable=True)
+    # draft | sending | sent | blocked | review | error | ready_for_delivery
     status: Mapped[str] = mapped_column(String(32), default="draft")
     idempotency_key: Mapped[str | None] = mapped_column(
         String(128), nullable=True)
@@ -471,6 +479,36 @@ class LeadState(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     __table_args__ = (
         UniqueConstraint("thread_id", "actor_id", name="uq_lead_thread_actor"),
+    )
+
+
+class ContactState(Base):
+    """Quyền liên hệ / ý định mua / trạng thái trò chuyện (thread, actor).
+
+    Tách riêng khỏi LeadState và khỏi tín hiệu lead: ba cột độc lập,
+    không suy diễn lẫn nhau. Detector deterministic ghi ở đầu lượt
+    (xem engine/contact_state.py); row không bao giờ bị xóa bởi logic
+    mở lại latch lead — khách đổi ý mua thì purchase_interest đổi, còn
+    contact_permission='refused' vẫn giữ cho tới khi khách cho phép
+    rõ ràng. Không có row = chưa có thông tin gì.
+    """
+    __tablename__ = "contact_states"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    thread_id: Mapped[str] = mapped_column(String(32))
+    actor_id: Mapped[str] = mapped_column(String(64))
+    # interested | not_interested | NULL (chưa biết)
+    purchase_interest: Mapped[str | None] = mapped_column(
+        String(32), nullable=True)
+    # allowed | refused | NULL (chưa biết)
+    contact_permission: Mapped[str | None] = mapped_column(
+        String(32), nullable=True)
+    # active | stopped | NULL (chưa biết)
+    conversation_status: Mapped[str | None] = mapped_column(
+        String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    __table_args__ = (
+        UniqueConstraint("thread_id", "actor_id",
+                         name="uq_contact_thread_actor"),
     )
 
 

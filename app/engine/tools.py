@@ -4,16 +4,13 @@ xác minh: persona_id/thread/actor do pipeline truyền vào, model không
 """
 from __future__ import annotations
 
-import uuid
 from datetime import date
 
 from sqlalchemy import select
 
-from ..config import CREATABLE_FACT_KEY_PREFIXES, LOCKED_FACT_KEYS, SETTINGS
-from ..models import (CustomerFact, Persona, PersonaFact, PersonaStory,
+from ..models import (CustomerFact, PersonaFact, PersonaStory,
                       ProductFact, StoryRevision)
 from ..schemas import ToolResult
-from .consistency import check_addendum, check_story
 from .typed_values import is_plausible_vn_mobile
 
 
@@ -180,32 +177,6 @@ class ToolExecutor:
     def _err(self, name, reason):
         return ToolResult(status="UNKNOWN", tool=name, reason=reason)
 
-    def _add_pending_tags(self, entity_type: str, entity_id: str,
-                          tags: list | None) -> dict:
-        """Tạo TagAssignment pending cho tag đã biết; tag lạ không tự
-        thành taxonomy, trả về trong unknown để model/admin duyệt."""
-        from ..engine.taxonomy import is_known_tag as _known
-        from ..models import TagAssignment as _TA
-        accepted, unknown = [], []
-        for tag in tags or []:
-            if not _known(tag):
-                unknown.append(tag)
-                continue
-            existing = self.s.execute(
-                select(_TA).where(
-                    _TA.entity_type == entity_type,
-                    _TA.entity_id == entity_id,
-                    _TA.tag == tag)).scalars().first()
-            if existing is not None:
-                continue
-            row = _TA(entity_type=entity_type, entity_id=entity_id,
-                      tag=tag, source="generated", status="pending")
-            self.s.add(row)
-            self.s.commit()
-            self.pending_tag_assignment_ids.append(row.id)
-            accepted.append(tag)
-        return {"tags_accepted": accepted, "tags_unknown": unknown}
-
     def execute(self, name: str, args: dict) -> ToolResult:
         try:
             fn = getattr(self, f"tool_{name}", None)
@@ -259,47 +230,20 @@ class ToolExecutor:
             if matched:
                 rows = matched
             else:
-                # Phân biệt hai trường hợp, không gộp thành một NOT_FOUND:
-                # (a) model hỏi đúng tên key trong registry nhưng fact
-                # chưa active (VD: vehicle_color chưa propose) -> NOT_FOUND
-                # để model đi đường propose, và để test pending-isolation
-                # (test_improvement) vẫn giữ nguyên ý nghĩa.
-                # (b) model đoán toàn key lạ ngoài registry (VD: vehicle,
-                # car, purchase_date) -> fallback trả toàn bộ canon active,
-                # kèm reason rõ ràng. Trả [] ở đây là nói dối model rằng
-                # persona không có dữ kiện, trong khi fact đã seed sẵn.
-                from ..config import CREATABLE_FACT_KEY_PREFIXES as _PFX
-                from ..config import LOCKED_FACT_KEYS as _LOCK
-                known = set(_LOCK) | {
-                    "vehicle_model", "vehicle_trim", "purchased_at",
-                    "is_first_car", "commute_route", "weekend_route"}
-                _all_keys = {r.fact_key for r in self.s.execute(
-                    select(PersonaFact).where(
-                        PersonaFact.persona_id == self.persona_id)
-                ).scalars().all()}
-
-                def _is_known(k: str) -> bool:
-                    return k in known or k.startswith(_PFX) or k in _all_keys
-                if any(_is_known(k) for k in mapped):
-                    return ToolResult(status="NOT_FOUND",
-                                      tool="get_persona_facts", data=[])
-                rows = all_rows
-                if not rows:
-                    return ToolResult(status="NOT_FOUND",
-                                      tool="get_persona_facts", data=[])
-                data = [{"id": r.id, "fact_key": r.fact_key, "value": r.value,
-                         "source": r.source, "version": r.version,
-                         "valid_from": r.valid_from, "valid_to": r.valid_to}
-                        for r in rows]
-                for r in rows:
-                    self.retrieved[r.id] = (
-                        "persona", r.value,
-                        {"status": "active", "fact_key": r.fact_key})
-                return ToolResult(status="FOUND", tool="get_persona_facts",
-                                  data=data,
-                                  reason="keys_unmatched_fallback_all: "
-                                         "requested keys không thuộc registry, "
-                                         "trả toàn bộ canon active thay vì []")
+                # Fact_key first: key đúng tên trong registry mà chưa
+                # active, hay key lạ ngoài registry, đều trả NOT_FOUND
+                # (kèm gợi ý registry để model hỏi lại đúng key) — KHÔNG
+                # đổ toàn bộ canon: đổ hết làm model lẫn lộn dữ kiện
+                # không liên quan và che mất việc canon thiếu key đó.
+                # (Luật cũ fallback trả hết canon khi key lạ — bỏ vì
+                # synonym map đã xử lý các cách đoán key thường gặp.)
+                return ToolResult(
+                    status="NOT_FOUND", tool="get_persona_facts", data=[],
+                    reason="fact_key chưa có trong canon active; registry: "
+                           "vehicle_model, vehicle_trim, purchased_at, "
+                           "is_first_car, commute_route, weekend_route, "
+                           "vehicle_color, favorite_*, trip_*, commute_*, "
+                           "weekend_*, experience_*, habit_*, memory_*")
             rows = matched
         else:
             rows = all_rows
@@ -397,68 +341,6 @@ class ToolExecutor:
                 {"question_key": q.question_key, "question_text": q.question_text,
                  "status": q.status} for q in qs],
         })
-
-    # -- proposals (engine kiểm chứng rồi mới lưu) --
-    def tool_propose_persona_fact(self, args):
-        key = args.get("fact_key", "")
-        if key in LOCKED_FACT_KEYS:
-            return ToolResult(status="CONFLICT", tool="propose_persona_fact",
-                              reason=f"fact_key '{key}' bị khóa, không được sửa")
-        if not key.startswith(CREATABLE_FACT_KEY_PREFIXES):
-            return ToolResult(status="CONFLICT", tool="propose_persona_fact",
-                              reason=f"fact_key '{key}' không thuộc policy tạo mới")
-        existing = self.s.execute(
-            select(PersonaFact).where(
-                PersonaFact.persona_id == self.persona_id,
-                PersonaFact.fact_key == key,
-                PersonaFact.status == "active")).scalars().first()
-        if existing:
-            if existing.value == args.get("value"):
-                self.retrieved[existing.id] = ("persona", existing.value,
-                                               {"status": "active",
-                                                "fact_key": key})
-                return ToolResult(status="FOUND", tool="propose_persona_fact",
-                                  data={"id": existing.id, "fact_key": key,
-                                        "value": existing.value,
-                                        "reused": True})
-            return ToolResult(status="CONFLICT", tool="propose_persona_fact",
-                              reason="fact đã có giá trị khác, cần correction "
-                                     "có thẩm quyền, không ghi đè")
-        pending = self.s.execute(
-            select(PersonaFact).where(
-                PersonaFact.persona_id == self.persona_id,
-                PersonaFact.fact_key == key,
-                PersonaFact.status == "pending")).scalars().first()
-        if pending:
-            if pending.value == args.get("value"):
-                self.retrieved[pending.id] = ("persona", pending.value,
-                                              {"status": "pending",
-                                               "fact_key": key})
-                return ToolResult(status="FOUND", tool="propose_persona_fact",
-                                  data={"id": pending.id, "fact_key": key,
-                                        "value": pending.value,
-                                        "reused": True, "status": "pending"})
-            return ToolResult(status="CONFLICT", tool="propose_persona_fact",
-                              reason="đã có candidate pending khác cho cùng key "
-                                     "trong lượt này, không ghi đè")
-        # Candidate: status pending, CHƯA phải canon. Pipeline chỉ
-        # activate khi delivery thành công, ngược lại reject.
-        row = PersonaFact(persona_id=self.persona_id, fact_key=key,
-                          value=args.get("value", ""),
-                          source=args.get("source", "generated"),
-                          status="pending",
-                          provenance=args.get("evidence", ""))
-        self.s.add(row)
-        self.s.commit()
-        self.pending_persona_fact_ids.append(row.id)
-        self.retrieved[row.id] = ("persona", row.value,
-                                  {"status": "pending", "fact_key": key})
-        tag_res = self._add_pending_tags("fact", row.id,
-                                         args.get("tags"))
-        return ToolResult(status="FOUND", tool="propose_persona_fact",
-                          data={"id": row.id, "fact_key": key,
-                                "value": row.value, "status": "pending",
-                                **tag_res})
 
     def _evidence_matches_server_message(self, evidence: str) -> bool:
         """Evidence phải tồn tại trong message do server xác định:
@@ -569,117 +451,3 @@ class ToolExecutor:
         return ToolResult(status="FOUND", tool="propose_customer_fact",
                           data=item)
 
-    def tool_propose_story(self, args):
-        persona = self.s.get(Persona, self.persona_id)
-        purchased = None
-        if persona:
-            f = self.s.execute(
-                select(PersonaFact).where(
-                    PersonaFact.persona_id == self.persona_id,
-                    PersonaFact.fact_key == "purchased_at",
-                    PersonaFact.status == "active")).scalars().first()
-            purchased = f.value if f else None
-        candidates = self.s.execute(
-            select(PersonaStory).where(
-                PersonaStory.persona_id == self.persona_id)).scalars().all()
-        check = check_story(args, candidates, purchased)
-        if check["verdict"] == "SAME_EVENT":
-            story = self.s.get(PersonaStory, check["event_id"])
-            view = canonical_view(self.s, story)
-            self.retrieved[story.event_id] = (
-                "story", _story_retrieved_value(
-                    story.summary, story.body),
-                {"status": story.status})
-            return ToolResult(status="FOUND", tool="propose_story",
-                              data={**view, "reused": True},
-                              ref_id=story.event_id)
-        if check["verdict"] != "NEW_EVENT":
-            return ToolResult(status=check["verdict"], tool="propose_story",
-                              reason=check["reason"])
-        # Giới hạn story/ngày/persona được kiểm ở API/pipeline qua
-        # MAX_STORIES_PER_DAY_PER_PERSONA khi cần (sandbox mặc định tắt
-        # hard-cap để không chặn luồng demo; test concurrency kiểm tra
-        # version/conflict, không phải cap này).
-        # Candidate pending, chưa phải canon — activate khi sent.
-        # Luna PHẢI trả tags + phân loại (categories) để engine update DB:
-        # tags lạ không tự thành taxonomy, categories lạ bị chặn rõ ràng.
-        from ..engine.taxonomy import CATEGORIES as _CATS
-        cats = args.get("categories") or []
-        bad_cats = [c for c in cats if c not in _CATS]
-        if bad_cats:
-            return ToolResult(status="CONFLICT", tool="propose_story",
-                              reason=f"category chưa có trong taxonomy: {bad_cats}")
-        tellable = args.get("tellable_policy") or "on_relevance"
-        if tellable not in ("always", "on_relevance", "never"):
-            return ToolResult(status="CONFLICT", tool="propose_story",
-                              reason=f"tellable_policy không hợp lệ: {tellable}")
-        row = PersonaStory(
-            event_id="evt_" + uuid.uuid4().hex[:16],
-            persona_id=self.persona_id, title=args.get("title", ""),
-            summary=args["summary"], body=args["body"],
-            entities=args.get("entities") or {},
-            event_type=args.get("event_type", "experience"),
-            event_date=args.get("event_date"),
-            event_date_precision=args.get("event_date_precision", "unknown"),
-            fictional_generated=True,
-            status="pending",
-            participants=args.get("participants") or [],
-            context_text=args.get("context"),
-            concern_or_choice=args.get("concern_or_choice"),
-            action_text=args.get("action"),
-            outcome_text=args.get("outcome"),
-            feeling_or_lesson=args.get("feeling_or_lesson"),
-            canonical_facts=args.get("canonical_facts") or [],
-            tellable_policy=tellable,
-            related_need_topics=args.get("related_need_topics") or [],
-            story_categories=cats,
-            provenance="model_proposal")
-        self.s.add(row)
-        self.s.commit()
-        self.pending_story_ids.append(row.event_id)
-        self.retrieved[row.event_id] = (
-            "story", _story_retrieved_value(row.summary, row.body),
-            {"status": "pending"})
-        tag_res = self._add_pending_tags("story", row.event_id,
-                                         args.get("tags"))
-        item = canonical_view(self.s, row)
-        # canonical_view chỉ lấy tag active, nên cộng thêm tag pending
-        # của lượt này để model thấy đúng những gì nó vừa đề xuất.
-        item["tags"] = sorted(set(item.get("tags") or [])
-                              | set(tag_res["tags_accepted"]))
-        item = {**item, **tag_res}
-        self.saved_stories.append(item)
-        return ToolResult(status="FOUND", tool="propose_story", data=item,
-                          ref_id=row.event_id)
-
-    def tool_propose_addendum(self, args):
-        story = self.s.get(PersonaStory, args["event_id"])
-        if story is None or story.persona_id != self.persona_id:
-            return ToolResult(status="NOT_FOUND", tool="propose_addendum",
-                              reason="event_id không thuộc persona này")
-        check = check_addendum(story, args["content"], args.get("entities") or {})
-        if check["verdict"] != "COMPATIBLE":
-            return ToolResult(status="CONFLICT", tool="propose_addendum",
-                              reason=check["reason"])
-        # Addendum candidate pending: version của story CHƯA bump, và
-        # canonical view (chỉ gồm revision active) CHƯA chứa nó. Để model
-        # vẫn trích dẫn được trong lượt này, retrieved và data trả về
-        # gồm cả pending addendum một cách tường minh.
-        rev = StoryRevision(
-            event_id=story.event_id, persona_id=self.persona_id,
-            kind="addendum", content=args["content"],
-            entities=args.get("entities") or {},
-            version=story.version + 1, status="pending")
-        self.s.add(rev)
-        self.s.commit()
-        self.pending_addendum_ids.append(rev.id)
-        view = canonical_view(self.s, story)
-        full_text = _story_retrieved_value(
-            story.summary, story.body,
-            [*view["addenda"], args["content"]])
-        self.retrieved[story.event_id] = (
-            "story", full_text, {"status": "pending"})
-        out = {**view, "pending_addenda": [args["content"]]}
-        self.saved_stories.append(out)
-        return ToolResult(status="FOUND", tool="propose_addendum", data=out,
-                          ref_id=story.event_id)

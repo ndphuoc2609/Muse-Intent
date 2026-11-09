@@ -15,23 +15,44 @@ TOOLS = [
             "hỏi cụ thể, followup PHẢI là câu hỏi cụ thể theo nhu cầu đó, "
             "không dùng câu chung chung ('còn muốn hỏi thêm gì không?'); "
             "một câu 'không' cho câu hỏi chung không được chọn goal stop "
-            "khi need còn chưa khai thác. TRẦN: khai thác tối đa 1-2 câu, "
-            "sau đó chuyển sang giới thiệu sale + xin SĐT (LEAD_CAPTURE); "
-            "khách từ chối SĐT thì mời nhắn riêng, không hỏi lại. "
-            "Quy chiếu mẫu xe: bài viết chỉ nhắc một mẫu xe và khách "
-            "chưa nhắc mẫu nào khác thì bản/màu khách nhắc tới đều hiểu "
-            "là mẫu xe trong bài — không hỏi lại 'mẫu trong bài hay mẫu "
-            "khác'. Từ chối: nếu khách từ chối trả lời một câu hỏi đang "
+            "khi need còn chưa khai thác. TRẦN: khai thác tối đa 1-2 câu "
+            "hỏi cụ thể, sau đó DỪNG khai thác (trả lời tự nhiên theo "
+            "mạch trò chuyện, không hỏi sâu thêm) — KHÔNG tự đẩy sang "
+            "giới thiệu sale + xin SĐT; giới thiệu sale/đại lý CHỈ khi "
+            "khách yêu cầu rõ đặt cọc/giữ xe/kết nối đại lý/sale hoặc "
+            "đồng ý rõ ràng khi được hỏi. Handoff: goal handoff CHỈ khi "
+            "khách yêu cầu rõ đặt cọc/giữ xe/kết nối đại lý/sale; câu "
+            "nói muốn mua ('Tôi cũng muốn mua một chiếc như vậy') là "
+            "share_need, KHÔNG phải handoff/transaction — giải quyết "
+            "mẫu xe từ nhánh trả lời (resolved_reference) hoặc hỏi đúng "
+            "1 câu làm rõ mẫu xe. Quy chiếu mẫu xe: bài viết chỉ nhắc một "
+            "mẫu xe và khách chưa nhắc mẫu nào khác thì bản/màu khách nhắc "
+            "tới đều hiểu là mẫu xe trong bài — không hỏi lại 'mẫu trong "
+            "bài hay mẫu khác'. "
+            "Từ chối: nếu khách từ chối trả lời một câu hỏi đang "
             "chờ (kể cả câu hỏi xin SĐT), nêu key của câu hỏi đó vào "
             "declined_question_keys — engine sẽ đánh dấu từ chối và cấm "
-            "hỏi lại key đó. Kết cục lead: chỉ khi khách từ chối theo "
-            "đuổi mua nữa thì lead_outcome='refused', chuyển hẳn sang "
-            "chuyện khác không còn ý mua thì 'topic_changed', luồng lead "
-            "đã kết thúc thì 'ended'; từ chối riêng việc chia sẻ SĐT thì "
-            "KHÔNG tính là lead_outcome mà là declined_question_keys.",
+            "hỏi lại key đó. Đáp án: chỉ nêu key vào "
+            "answered_question_keys khi lượt này thực sự trả lời câu hỏi "
+            "đó; phản hồi ngắn ('ok', 'ừ') chỉ trả lời được câu hỏi dạng "
+            "có/không, không trả lời câu hỏi mở. Kết cục lead: chỉ khi "
+            "khách từ chối theo đuổi mua nữa thì lead_outcome='refused', "
+            "chuyển hẳn sang chuyện khác không còn ý mua thì "
+            "'topic_changed', luồng lead đã kết thúc thì 'ended'; từ chối "
+            "riêng việc chia sẻ SĐT thì KHÔNG tính là lead_outcome mà là "
+            "declined_question_keys. "
+            "intent_score_llm (tùy chọn, 0-100): điểm ưu tiên chú ý do "
+            "bạn tự chấm cho lượt này — cùng ý nghĩa với điểm rules của "
+            "hệ thống (lượt này có cần persona chú ý/trả lời ngay "
+            "không), KHÔNG phải confidence hay xác suất: 0 = xã giao "
+            "thuần, 100 = cần trả lời ngay (khách hỏi gấp, muốn mua, "
+            "muốn dừng). Chỉ để so sánh với điểm rules, không ảnh hưởng "
+            "quyết định nào.",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "intent_score_llm": {"type": ["number", "null"],
+                                         "minimum": 0, "maximum": 100},
                     "intents": {"type": "array", "items": {
                         "type": "object",
                         "properties": {
@@ -77,16 +98,18 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_persona_facts",
-            "description": "Tìm facts của persona đang bound. Không truyền persona_id. "
+            "description": "Tìm facts của persona đang bound theo đúng fact_key. "
             "KHÔNG truyền keys để lấy toàn bộ canon active (khuyến nghị). "
             "Nếu truyền keys, CHỈ dùng đúng tên key trong registry: "
             "vehicle_model, vehicle_trim, purchased_at, is_first_car, "
             "commute_route, weekend_route, vehicle_color, favorite_*, "
             "trip_*, commute_*, weekend_*, experience_*, habit_*, memory_*. "
             "Đừng tự đoán key khác (vehicle, car, purchase_date...): engine "
-            "có synonym map nhưng key lạ hoàn toàn sẽ fallback trả toàn bộ "
-            "canon, còn key đúng tên mà fact chưa active sẽ trả NOT_FOUND "
-            "để model đi đường propose.",
+            "có synonym map nhưng key lạ hoàn toàn sẽ trả NOT_FOUND kèm "
+            "gợi ý registry để hỏi lại đúng key. Key đúng tên mà fact "
+            "chưa active sẽ trả NOT_FOUND — nghĩa là canon CHƯA CÓ dữ "
+            "kiện đó: trả lời tự nhiên ('mình không rõ lắm') hoặc hỏi "
+            "lại, TUYỆT ĐỐI không tự chọn giá trị rồi đưa vào reply.",
             "parameters": {
                 "type": "object",
                 "properties": {"keys": {"type": "array", "items": {"type": "string"}}},
@@ -135,31 +158,6 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "propose_persona_fact",
-            "description": "Đề xuất tạo persona fact mới. Đây là luồng tạo chi tiết hư cấu "
-            "bình thường của persona (VD: màu xe chưa có trong canon), KHÔNG "
-            "phải bịa dữ kiện thật: engine kiểm tra key có được phép tạo, "
-            "không khóa, không mâu thuẫn với canon cũ trước khi lưu pending; "
-            "chỉ active khi reply gửi thành công. Nếu đã có giá trị khác "
-            "trong canon thì trả CONFLICT và KHÔNG ghi đè — khi đó dùng giá "
-            "trị trong canon. Có thể kèm tags (chỉ tag trong taxonomy mới "
-            "được chấp nhận).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "fact_key": {"type": "string"},
-                    "value": {"type": "string"},
-                    "evidence": {"type": "string"},
-                    "source": {"type": "string"},
-                    "tags": {"type": "array", "items": {"type": "string"}},
-                },
-                "required": ["fact_key", "value"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "propose_customer_fact",
             "description": "Đề xuất lưu một customer fact. Engine kiểm chứng subject, "
             "evidence và supersede bản cũ trước khi lưu. need_kind phân "
@@ -187,59 +185,6 @@ TOOLS = [
                     "correction": {"type": "boolean"},
                 },
                 "required": ["subject", "predicate", "value_raw", "evidence"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "propose_story",
-            "description": "Đề xuất story hư cấu mới. BẮT BUỘC trả tags + categories "
-            "để engine update DB (tags chỉ tag trong taxonomy, categories "
-            "chỉ category trong taxonomy; tag/category lạ bị chặn hoặc "
-            "vào draft, không tự thành taxonomy). Engine kiểm tra trùng/"
-            "mâu thuẫn/timeline trước khi lưu; chỉ sau khi lưu mới được "
-            "đưa vào reply. tellable_policy: always/on_relevance/never.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string"},
-                    "summary": {"type": "string"},
-                    "body": {"type": "string"},
-                    "event_type": {"type": "string"},
-                    "event_date": {"type": ["string", "null"]},
-                    "event_date_precision": {"type": "string"},
-                    "entities": {"type": "object"},
-                    "tags": {"type": "array", "items": {"type": "string"}},
-                    "categories": {"type": "array", "items": {"type": "string"}},
-                    "participants": {"type": "array"},
-                    "context": {"type": ["string", "null"]},
-                    "concern_or_choice": {"type": ["string", "null"]},
-                    "action": {"type": ["string", "null"]},
-                    "outcome": {"type": ["string", "null"]},
-                    "feeling_or_lesson": {"type": ["string", "null"]},
-                    "canonical_facts": {"type": "array"},
-                    "tellable_policy": {"type": "string"},
-                    "related_need_topics": {"type": "array",
-                                            "items": {"type": "string"}},
-                },
-                "required": ["summary", "body", "tags", "categories"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "propose_addendum",
-            "description": "Đề xuất chi tiết bổ sung cho story đã có (không ghi đè).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "event_id": {"type": "string"},
-                    "content": {"type": "string"},
-                    "entities": {"type": "object"},
-                },
-                "required": ["event_id", "content"],
             },
         },
     },

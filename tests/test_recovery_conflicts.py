@@ -8,10 +8,10 @@ from sqlalchemy.orm import sessionmaker
 from app.db import init_db
 from app.engine.fake_sender import FakeSender
 from app.engine.pipeline import Pipeline
-from app.models import Message, PersonaFact, PersonaStory
+from app.models import CustomerFact, Message, PersonaStory
 from app.providers.fake import FakeProvider
 from app.seed import seed
-from tests.conftest import make_persona, turn
+from tests.conftest import turn
 
 
 def _failed_turn(session, text, *, persona_id="AUTO_029"):
@@ -42,40 +42,55 @@ def test_retry_does_not_send_obsolete_reply_after_new_turn(session):
     assert sender.sent == sent_before
 
 
-def test_retry_does_not_send_when_persona_fact_conflicts(session):
-    text = "Bác đi xe màu gì?"
-    pipe, sender, failed = _failed_turn(session, text)
-    candidate = session.query(PersonaFact).filter_by(
-        persona_id="AUTO_029", fact_key="vehicle_color"
-    ).one()
-    assert candidate.status != "active"
-    other_value = "đỏ" if candidate.value != "đỏ" else "xanh"
-    session.add(PersonaFact(persona_id="AUTO_029", fact_key="vehicle_color",
-                            value=other_value, source="test", status="active"))
+def test_retry_does_not_send_when_customer_fact_conflicts(session):
+    # In-turn propose_persona_fact đã gỡ: xung đột canon giờ đi qua
+    # customer fact — một fact current cùng predicate xuất hiện sau khi
+    # draft stage thì retry không được gửi.
+    from test_delivery_recovery import BuyingInterestProvider
+
+    text = "Em đang tính mua Creta"
+    sender = FakeSender(fail_next=True)
+    pipe = Pipeline(session, BuyingInterestProvider(), sender)
+    failed = turn(pipe, text, idem="retry-key")
+    assert failed.status == "error"
+    assert sender.sent == []
+    candidate = session.query(CustomerFact).filter_by(
+        thread_id=failed.thread_id, actor_id="actor-1",
+        predicate="buying_interest").one()
+    assert candidate.status != "current"
+    session.add(CustomerFact(thread_id=failed.thread_id, actor_id="actor-1",
+                             subject="self", predicate="buying_interest",
+                             value_raw="chỉ xem thôi",
+                             evidence="chỉ xem thôi",
+                             source="stated", status="current"))
     session.commit()
 
     retried = _retry(pipe, failed, text)
 
     assert retried.status != "sent"
     assert sender.sent == []
-    assert session.get(PersonaFact, candidate.id).status != "active"
-    assert session.query(PersonaFact).filter_by(
-        persona_id="AUTO_029", fact_key="vehicle_color", status="active"
-    ).one().value == other_value
+    assert session.get(CustomerFact, candidate.id).status != "current"
+    assert session.query(CustomerFact).filter_by(
+        thread_id=failed.thread_id, actor_id="actor-1",
+        predicate="buying_interest", status="current"
+    ).one().value_raw == "chỉ xem thôi"
 
 
 def test_retry_does_not_send_revoked_story(session):
-    persona_id = make_persona(session, "retry-revoked-story",
-                              {"vehicle_model": "Hyundai Creta"})
+    # Story kể từ canon seed (AUTO_029), không còn tự tạo story mới
+    # trong lượt: event_id lấy từ claim trong snapshot của draft.
     text = "Bác có kỷ niệm nào đáng nhớ với xe không?"
-    pipe, sender, failed = _failed_turn(session, text, persona_id=persona_id)
-    assert failed.saved_stories
-    event_id = failed.saved_stories[0]["event_id"]
+    pipe, sender, failed = _failed_turn(session, text)
+    claims = (failed.trace or {}).get("delivery_recovery", {}).get(
+        "final", {}).get("claims", [])
+    story_claims = [c for c in claims if c.get("kind") == "story"]
+    assert story_claims, "failed turn phải claim một story canon"
+    event_id = story_claims[0]["ref_id"]
     story = session.get(PersonaStory, event_id)
     story.status = "revoked"
     session.commit()
 
-    retried = _retry(pipe, failed, text, persona_id=persona_id)
+    retried = _retry(pipe, failed, text)
 
     assert retried.status != "sent"
     assert sender.sent == []

@@ -36,6 +36,7 @@ cosine TF-IDF và neural khác nhau).
 from __future__ import annotations
 
 import json
+import re
 import unicodedata
 
 from sqlalchemy import select
@@ -65,20 +66,66 @@ def _strip(text: str) -> str:
 # quá chung, dễ bật lead cho khách chỉ xem chơi.
 LEAD_KEYWORDS = ("dai ly", "sale", "lay xe", "quan tam",
                  "bao gia", "tu van", "lien he", "khu vuc", "showroom",
-                 "gan", "o dau", "dat coc", "dang tinh", "dang tim",
-                 "nghien cuu")
+                 "gan", "o dau", "dat coc", "dang tinh", "dang tim mua",
+                 "dang tim xe", "nghien cuu")
+# "dang tim" trần quá rộng: khớp cả "đang tìm hiểu" (xem chơi, không
+# phải tín hiệu lead) nên chỉ giữ dạng có đối tượng mua/xe.
+
+
+def _negated_before(stripped: str, keyword: str) -> bool:
+    """Keyword có bị phủ định ngay trước đó không ('không mua', 'đừng
+    liên hệ', 'chưa mua'...). Chỉ xét 3 token trước keyword: phủ định
+    xa hơn thường thuộc mệnh đề khác."""
+    toks = re.findall(r"\w+", stripped)
+    for i, t in enumerate(toks):
+        if t != keyword:
+            continue
+        if any(w in ("khong", "chua", "dung", "khoi", "thoi")
+               for w in toks[max(0, i - 3):i]):
+            return True
+    return False
+
+
+def _asks_persona_purchase_place(stripped: str) -> bool:
+    """Câu hỏi về nơi/lúc persona ĐÃ mua ('Bác mua xe ở đâu thế?'):
+    xưng hô ngôi hai (bác/anh/chị/bạn/cậu — cách khách gọi persona)
+    đứng ngay trước 'mua' (tối đa 2 từ đệm) + 'ở đâu/lúc nào/khi
+    nào/bao nhiêu' — hỏi kinh nghiệm của persona, không phải ý định
+    mua của khách. 'Em' KHÔNG nằm đây: 'em' thường là khách tự xưng
+    ('Em muốn mua xe, mua ở đâu thì tốt?') vẫn là tín hiệu lead."""
+    return bool(re.search(
+        r"\b(bac|anh|chi|ban|cau)\b(?:\s+\w+){0,2}?\s+mua\b[^.?!]*"
+        r"\b(o dau|luc nao|khi nao|bao nhieu)\b", stripped))
 
 
 def has_lead_signal(text: str) -> bool:
-    import re
     orig = (text or "").lower()
+    # _strip giữ nguyên 'đ' (đừng -> đừng, đâu -> đau) nên map đ->d ở
+    # đây để pattern 'dung'/'o dau'/'dai ly' khớp cả hai cách gõ.
+    # KHÔNG sửa _strip chung: nó nuôi vector TF-IDF của index đã build.
+    stripped = _strip(text).replace("đ", "d")
+    # "mua" chỉ tính khi không bị phủ định ('không mua đâu' là từ chối
+    # mua, không phải tín hiệu lead) và không phải câu hỏi về nơi
+    # persona đã mua ('Bác mua xe ở đâu thế?').
     if re.search(r"\bmua\b", orig):
-        return True
-    stripped = _strip(text)
+        if _asks_persona_purchase_place(stripped):
+            return False
+        if not _negated_before(stripped, "mua"):
+            return True
     words = set(re.findall(r"\w+", stripped))
     if words & {"sale", "showroom", "gan"}:
         return True
-    return any(k in stripped for k in LEAD_KEYWORDS)
+    for k in LEAD_KEYWORDS:
+        if k in stripped:
+            # "liên hệ" bị phủ định ('đừng liên hệ nữa') là từ chối
+            # liên lạc, không phải tín hiệu lead.
+            if k == "lien he" and _negated_before(stripped, "lien"):
+                continue
+            # "o dau" trong câu hỏi về nơi persona đã mua (xem trên).
+            if k == "o dau" and _asks_persona_purchase_place(stripped):
+                continue
+            return True
+    return False
 
 
 def build_company_chunks(dealers: list[dict]) -> list[dict]:

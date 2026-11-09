@@ -134,7 +134,7 @@ textarea{resize:vertical}
 .mini-btn.angry{color:var(--fb-orange)}
 .comment-time{color:var(--fb-secondary);font-weight:400}
 .status{font-size:12px;font-weight:600}
-.status.sent{color:#067647} .status.review{color:#9a5b12} .status.error{color:#c5221f}
+.status.sent{color:#067647} .status.review{color:#9a5b12} .status.error{color:#c5221f} .status.ready_for_delivery{color:#175cd3}
 /* Reaction picker: popup tròn kiểu Facebook. */
 .picker{display:none;position:absolute;bottom:100%;left:0;background:#fff;border-radius:999px;box-shadow:var(--shadow-pop);padding:4px;gap:2px;z-index:20;white-space:nowrap}
 .like-wrap:hover .picker,.like-wrap.open .picker,.like-wrap:focus-within .picker{display:flex}
@@ -574,8 +574,8 @@ function renderComments(messages, reactions){
       : `<div class="avatar sm" style="background:var(--fb-secondary)" aria-hidden="true">${esc(actorInitials(m.actor_id || 'actor-1'))}</div>`;
     const countsFor = counts[m.id] || {};
     const myEmoji = mine[m.id] || null;
-    const statusLabel = isPersona ? (m.status === 'sent' ? 'Đã gửi qua FakeSender' : m.status === 'review' ? 'Cần review / handoff (chưa gửi)' : m.status === 'error' ? 'Lỗi' : m.status) : '';
-    const statusCls = m.status === 'sent' ? 'sent' : m.status === 'review' ? 'review' : 'error';
+    const statusLabel = isPersona ? (m.status === 'sent' ? 'Đã gửi qua FakeSender' : m.status === 'review' ? 'Cần review / handoff (chưa gửi)' : m.status === 'ready_for_delivery' ? 'Chờ partner xác nhận đã gửi' : m.status === 'error' ? 'Lỗi' : m.status) : '';
+    const statusCls = m.status === 'sent' ? 'sent' : m.status === 'review' ? 'review' : m.status === 'ready_for_delivery' ? 'ready_for_delivery' : 'error';
     const canReact = m.status === 'sent';
     const pill = Object.keys(countsFor).length ? `<button type="button" class="pill" data-pill-mid="${esc(m.id)}" aria-label="Xem cảm xúc"><span>${Object.entries(countsFor).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([e])=>e).join('')}</span><span>${Object.values(countsFor).reduce((s,n)=>s+n,0)}</span></button>` : '';
     const actions = canReact ? `<div class="comment-actions">
@@ -586,7 +586,7 @@ function renderComments(messages, reactions){
     </div>` : `<div class="comment-actions"><span class="comment-time">${esc(timeAgo(m.created_at))}</span>${isPersona ? `<span class="status ${statusCls}">${esc(statusLabel)}</span>` : ''}</div>`;
     // Pill neo theo bubble-wrap (mép dưới bubble), không neo theo
     // comment-body: body còn dài thêm khi gắn trace thì pill không trôi.
-    const gate = !isPersona ? renderGate((m.trace || {}).gate, (m.trace || {}).intent_score) : '';
+    const gate = !isPersona ? renderGate((m.trace || {}).gate, (m.trace || {}).intent_score, (m.trace || {}).intent_score_llm) : '';
     return `<div class="comment-row" data-message-id="${esc(m.id)}">${av}<div class="comment-body"><div class="bubble-wrap"><div class="bubble${isPersona && m.status !== 'sent' ? ' ' + m.status : ''}"><div class="bubble-name">${esc(name)}</div><div class="bubble-text">${esc(m.text)}</div></div>${pill}</div>${actions}${gate}</div></div>`;
   }).join('');
   // Gắn lại trace của lượt vừa gửi vào message persona mới nhất (nếu còn khớp).
@@ -643,7 +643,7 @@ async function react(mid, emoji){
   }
 }
 const GOAL_LABELS = {answer_question:'Trả lời câu hỏi', share_experience:'Chia sẻ trải nghiệm', clarify:'Hỏi làm rõ', explore_need:'Khám phá nhu cầu', empathize:'Đồng cảm', stop:'Dừng', handoff:'Trả lời tự động'};
-function renderGate(gate, intentScore) {
+function renderGate(gate, intentScore, intentScoreLlm) {
   const labels = {pipeline:'Đưa vào xử lý', bypass:'Bỏ qua – không trả lời', faq:'Trả lời theo FAQ'};
   const action = gate && Object.prototype.hasOwnProperty.call(labels, gate.action)
     ? labels[gate.action] : 'Không có dữ liệu';
@@ -658,7 +658,12 @@ function renderGate(gate, intentScore) {
         const points = Number.isFinite(f.points) ? ` (${f.points > 0 ? '+' : ''}${f.points})` : '';
         return `<li>${esc(f.label)}${esc(points)}</li>`;
       }).join('') : '';
-  return `<div class="gate-result"><b>Quyết định gate:</b> ${esc(action)}<br><b>Lý do:</b> ${esc(reason)}<br><b>${scoreLabel}:</b> ${score}${factors ? `<ul>${factors}</ul>` : ''}<br>Điểm chỉ để tham khảo, không phải xác suất và không điều khiển gate.</div>`;
+  // intent_score_llm: điểm shadow do model chấm (cùng ý nghĩa với
+  // rules_v1 — mức ưu tiên chú ý, KHÔNG phải xác suất, KHÔNG điều
+  // khiển gate hay bất kỳ quyết định nào). None khi model không trả.
+  const llmScore = (typeof intentScoreLlm === 'number' && Number.isFinite(intentScoreLlm))
+    ? `${Math.round(intentScoreLlm)}/100 (shadow, tham khảo)` : 'Chưa có điểm';
+  return `<div class="gate-result"><b>Quyết định gate:</b> ${esc(action)}<br><b>Lý do:</b> ${esc(reason)}<br><b>${scoreLabel}:</b> ${score}${factors ? `<ul>${factors}</ul>` : ''}<br><b>Điểm intent theo model (shadow):</b> ${esc(llmScore)}<br>Điểm chỉ để tham khảo, không phải xác suất và không điều khiển gate.</div>`;
 }
 function sourceLabel(s) {
   return s === 'stated' ? 'Khách nói rõ' : s === 'inferred_context' ? 'Suy luận từ context' : (s || '—');
@@ -688,9 +693,9 @@ function renderPlanner(d) {
   const pending = (p.pending_questions || []).length ? p.pending_questions.map(q => esc(typeof q === 'string' ? q : (q.key || JSON.stringify(q)))).join(', ') : '—';
   const needs = (p.data_needs || []).length ? p.data_needs.map(esc).join(', ') : '—';
   const resolved = (p.resolved_reference && p.resolved_reference.resolved_to) ? esc(p.resolved_reference.resolved_to) : '—';
-  const reviewNote = d.status === 'review' ? `<div class="planner-item"><b>Lượt cũ này chưa gửi.</b><div class="planner-meta">${esc((d.validator_errors || []).join('; ') || 'Lượt này đã được giữ lại theo luồng cũ.')}</div></div>` : (d.status === 'sent' && (d.validator_errors || []).length ? `<div class="planner-item"><b>Đã gửi tự động; kiểm tra ghi nhận:</b><div class="planner-meta">${esc(d.validator_errors.join('; '))}</div></div>` : '');
+  const reviewNote = d.status === 'review' ? `<div class="planner-item"><b>Lượt cũ này chưa gửi.</b><div class="planner-meta">${esc((d.validator_errors || []).join('; ') || 'Lượt này đã được giữ lại theo luồng cũ.')}</div></div>` : (d.status === 'ready_for_delivery' ? `<div class="planner-item"><b>Lượt này đang chờ partner xác nhận đã gửi trên kênh thật.</b><div class="planner-meta">Fact/story pending chỉ kích hoạt khi partner xác nhận sent.</div></div>` : (d.status === 'sent' && (d.validator_errors || []).length ? `<div class="planner-item"><b>Đã gửi tự động; kiểm tra ghi nhận:</b><div class="planner-meta">${esc(d.validator_errors.join('; '))}</div></div>` : ''));
   const replayNote = (d.trace && d.trace.idempotent_replay === true) ? '<p class="meta">Đây là planner của reply cũ (trùng Idempotency-Key).</p>' : '';
-  box.innerHTML = `${renderGate((d.trace || {}).gate, (d.trace || {}).intent_score)}<p><b>Mục tiêu:</b> ${esc(goal)}</p><p><b>Định hướng tiếp theo:</b> ${esc(direction)}</p><p><b>Tham chiếu đã giải quyết:</b> ${resolved}</p><p><b>Dữ kiện cần:</b> ${needs}</p><p><b>Đã trả lời câu hỏi:</b> ${answered}</p><p><b>Câu hỏi đang chờ:</b> ${pending}</p><h3 style="font-size:15px;margin:16px 0 8px">Intents (kèm intent source)</h3><p class="meta">Độ tin cậy nhận diện intent không phải điểm quyết định trả lời; giá trị có thể là mặc định.</p>${intents}${reviewNote}${replayNote}`;
+  box.innerHTML = `${renderGate((d.trace || {}).gate, (d.trace || {}).intent_score, (d.trace || {}).intent_score_llm)}<p><b>Mục tiêu:</b> ${esc(goal)}</p><p><b>Định hướng tiếp theo:</b> ${esc(direction)}</p><p><b>Tham chiếu đã giải quyết:</b> ${resolved}</p><p><b>Dữ kiện cần:</b> ${needs}</p><p><b>Đã trả lời câu hỏi:</b> ${answered}</p><p><b>Câu hỏi đang chờ:</b> ${pending}</p><h3 style="font-size:15px;margin:16px 0 8px">Intents (kèm intent source)</h3><p class="meta">Độ tin cậy nhận diện intent không phải điểm quyết định trả lời; giá trị có thể là mặc định.</p>${intents}${reviewNote}${replayNote}`;
 }
 async function sendTurn() {
   if (isSending) return;

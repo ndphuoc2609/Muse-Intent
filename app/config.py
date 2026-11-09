@@ -84,6 +84,18 @@ class Settings:
     fake_sender_fail_next: bool = (
         os.environ.get("FAKE_SENDER_FAIL_NEXT", "") == "1"
     )
+    # Partner mode (Phase 3): khi PARTNER_API_KEY được cấu hình thì các
+    # endpoint partner (/turns, /threads/*/turns, xác nhận gửi) yêu cầu
+    # header X-API-Key, thread bị giới hạn theo tenant, và reply chỉ ở
+    # trạng thái ready_for_delivery cho tới khi partner xác nhận đã gửi
+    # trên kênh thật. Không cấu hình key = sandbox như cũ (FakeSender
+    # gửi mô phỏng, không cần xác nhận). Xem docs/api-integration.md.
+    partner_api_key: str = os.environ.get("PARTNER_API_KEY", "")
+    partner_tenant: str = os.environ.get("PARTNER_TENANT", "default")
+
+    @property
+    def partner_mode(self) -> bool:
+        return bool(self.partner_api_key)
 
 
 SETTINGS = Settings()

@@ -166,12 +166,17 @@ def finish_delivery(session, executor, snapshot, message, *, recovered=False):
             continue
         seen.add(event_id)
         story = session.get(PersonaStory, event_id)
-        if story is not None and not session.execute(select(StoryTold).where(
-            StoryTold.event_id == event_id, StoryTold.actor_id == executor.actor_id,
-            StoryTold.message_id == message.id)).scalars().first():
-            session.add(StoryTold(event_id=event_id, persona_id=executor.persona_id,
-                                  actor_id=executor.actor_id, thread_id=executor.thread_id,
-                                  message_id=message.id))
+        if story is not None:
+            # Story kể từ canon (không phải tạo trong lượt) cũng ghi lần
+            # kể đầu tiên — trước đây chỉ saved_story_ids mới được ghi.
+            if not story.told_in_message_id:
+                story.told_in_message_id = message.id
+            if not session.execute(select(StoryTold).where(
+                StoryTold.event_id == event_id, StoryTold.actor_id == executor.actor_id,
+                StoryTold.message_id == message.id)).scalars().first():
+                session.add(StoryTold(event_id=event_id, persona_id=executor.persona_id,
+                                      actor_id=executor.actor_id, thread_id=executor.thread_id,
+                                      message_id=message.id))
     if final.get("followup_question") and final.get("followup_key"):
         exists = session.execute(select(QuestionState).where(
             QuestionState.thread_id == executor.thread_id,

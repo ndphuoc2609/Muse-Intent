@@ -20,8 +20,8 @@ from app.engine.rag import index_status, sha_bytes
 from app.engine.tools import ToolExecutor
 from app.engine.validator import (_negated_against, _story_matches,
                                   _stripped_tokens, validate)
-from app.models import (LeadState, Message, Persona, QuestionState, RagChunk,
-                        RagIndexMeta, Thread)
+from app.models import (ContactState, LeadState, Message, Persona,
+                        QuestionState, RagChunk, RagIndexMeta, Thread)
 from app.schemas import Planner
 from app.seed import _purge_removed
 from tests.conftest import turn
@@ -186,7 +186,9 @@ def test_lead_terminal_latch_and_reopen(session):
     p3 = Pipeline(session, _PlanFinalStub("Cho mình số điện thoại nhé"),
                   FakeSender())
     r3 = turn(p3, "Bác đi Creta lâu chưa?", thread_id=tid)
-    assert r3.status == "sent"
+    # private_request là lỗi blocking -> giữ ở review, không gửi.
+    assert r3.status == "review"
+    assert any("private_request" in e for e in r3.validator_errors)
     assert any("private_request" in e for e in r3.validator_errors)
     # T4: tín hiệu mua mới, planner không phán quyết terminal -> mở lại.
     p4 = Pipeline(session, _PlanFinalStub("Creta đi phố tiết kiệm lắm."),
@@ -208,9 +210,20 @@ def test_lead_opt_out_writes_refused(session):
     p2 = Pipeline(session, _PlanFinalStub("Ok, mình dừng nhé.",
                                           goal="stop", final_goal="stop"),
                   FakeSender())
-    turn(p2, "Dừng lại đi, đừng nhắn nữa", thread_id=tid)
-    row = _lead_row(session, tid)
-    assert row is not None and row.status == "refused"
+    r2 = turn(p2, "Dừng lại đi, đừng nhắn nữa", thread_id=tid)
+    # Detector deterministic bắt 'dừng lại' ở đầu lượt: trả xác nhận
+    # dừng, KHÔNG gọi LLM (stub không được gọi), và ghi quyền liên hệ
+    # vào ContactState thay vì LeadState.
+    assert r2.status == "sent"
+    assert r2.reply_text is not None and "dừng ở đây" in r2.reply_text
+    assert r2.trace.get("contact_stop") is True
+    row = session.execute(
+        select(ContactState).where(
+            ContactState.thread_id == tid,
+            ContactState.actor_id == "actor-1")).scalars().first()
+    assert row is not None
+    assert row.conversation_status == "stopped"
+    assert row.contact_permission == "refused"
 
 
 def test_lead_signal_does_not_leak_across_actors(session):
@@ -221,11 +234,12 @@ def test_lead_signal_does_not_leak_across_actors(session):
     r1 = turn(p1, "Em đang tính mua Creta, bác tư vấn giúp")
     assert r1.status == "sent"
     tid = r1.thread_id
-    # B hỏi trung tính + final xin SĐT: latch B tắt -> private_request.
+    # B hỏi trung tính + final xin SĐT: latch B tắt -> private_request
+    # (lỗi blocking) nên lượt giữ ở review, không gửi.
     p2 = Pipeline(session, _PlanFinalStub("Cho mình số điện thoại nhé"),
                   FakeSender())
     r2 = turn(p2, "Bác đi Creta lâu chưa?", thread_id=tid, actor="actor-2")
-    assert r2.status == "sent"
+    assert r2.status == "review"
     assert any("private_request" in e for e in r2.validator_errors)
     # Control: A hỏi trung tính + final xin SĐT: latch A bật từ lịch sử
     # của chính A -> sent.
@@ -259,9 +273,11 @@ def test_declined_same_turn_blocks_reask_in_pipeline(session):
         followup_key="phone"), FakeSender())
     r2 = turn(p2, "Không tiện cho số đâu, để mình tự liên hệ sau",
               thread_id=tid)
-    assert r2.status == "sent"
+    # refused_question là lỗi blocking -> giữ ở review, không gửi.
+    assert r2.status == "review"
     assert any("refused_question" in e for e in r2.validator_errors)
-    # QuestionState phone cũ vẫn ghi nhận declined khi lượt được gửi.
+    # QuestionState phone cũ vẫn ghi nhận declined dù lượt giữ ở review
+    # (§5 chạy trước khi quyết định review).
     session.refresh(q)
     assert q.status == "declined"
 

@@ -2,17 +2,17 @@
 import json
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
+from app.engine.delivery_state import can_recover, make_snapshot
 from app.engine.fake_sender import FakeSender
 from app.engine.pipeline import Pipeline
-from app.models import (CustomerFact, Delivery, Message, PersonaFact, PersonaStory,
-                        QuestionState, StoryTold, TagAssignment, Thread)
+from app.engine.tools import ToolExecutor
+from app.models import (CustomerFact, Delivery, Message, PersonaFact,
+                        PersonaStory, QuestionState, StoryTold, Thread)
 from app.providers.base import ProviderResult, ToolCall
 from app.providers.fake import FakeProvider
-from conftest import make_persona, turn
-from test_color_propose_flow import ColorProposingProvider
+from conftest import turn
 
 
 class NoCallsProvider:
@@ -20,35 +20,60 @@ class NoCallsProvider:
         raise AssertionError("retry không được gọi lại model khi đã có draft")
 
 
+class BuyingInterestProvider:
+    """plan -> propose_customer_fact -> final reply (luồng pending fact
+    còn sống sau khi propose_persona_fact bị gỡ)."""
+
+    def chat(self, messages, tools):
+        called = {json.loads(m["content"]).get("tool") for m in messages
+                  if m.get("role") == "tool"}
+        if "plan_turn" not in called:
+            return ProviderResult(tool_calls=[ToolCall("plan_turn", {
+                "intents": [{"type": "share_need",
+                             "normalized": "đang tính mua Creta",
+                             "evidence": "Em đang tính mua Creta"}],
+                "goal": "answer_question"})])
+        if "propose_customer_fact" not in called:
+            return ProviderResult(tool_calls=[ToolCall("propose_customer_fact", {
+                "subject": "self", "predicate": "buying_interest",
+                "value_raw": "đang tính mua Creta",
+                "evidence": "Em đang tính mua Creta"})])
+        return ProviderResult(tool_calls=[ToolCall("submit_final_reply", {
+            "text": "Dạ, Creta đi phố ổn lắm bạn. Bạn thích điểm gì ở mẫu xe này?",
+            "claims": [], "goal": "answer_question",
+            "followup_question": "Bạn thích điểm gì ở mẫu xe này?",
+            "followup_key": "like_point"})])
+
+
 def new_session(session):
     return sessionmaker(bind=session.get_bind())()
 
 
-def test_retry_restores_persona_fact_and_replay_does_not_resend(session):
-    first = turn(Pipeline(session, ColorProposingProvider(), FakeSender(True)),
-                 "Bác đi xe màu gì thế?", idem="color")
+def test_retry_restores_customer_fact_and_replay_does_not_resend(session):
+    first = turn(Pipeline(session, BuyingInterestProvider(), FakeSender(True)),
+                 "Em đang tính mua Creta", idem="buying-interest")
     assert first.status == "error"
-    row = session.execute(select(PersonaFact).where(
-        PersonaFact.persona_id == "AUTO_029", PersonaFact.fact_key == "vehicle_color"
-    )).scalar_one()
+    row = session.query(CustomerFact).filter_by(
+        thread_id=first.thread_id, actor_id="actor-1",
+        predicate="buying_interest").one()
     fact_id = row.id
-    assert row.status != "active"
+    assert row.status != "current"
 
     with new_session(session) as retry_session:
         sender = FakeSender()
         pipe = Pipeline(retry_session, NoCallsProvider(), sender)
-        recovered = turn(pipe, "Bác đi xe màu gì thế?", thread_id=first.thread_id,
-                         idem="color")
+        recovered = turn(pipe, "Em đang tính mua Creta",
+                         thread_id=first.thread_id, idem="buying-interest")
         assert recovered.status == "sent"
         assert recovered.message_id == first.message_id
-        assert retry_session.get(PersonaFact, fact_id).status == "active"
-        assert retry_session.get(PersonaFact, fact_id).value == "trắng"
-        replay = turn(pipe, "Bác đi xe màu gì thế?", thread_id=first.thread_id,
-                      idem="color")
+        assert retry_session.get(CustomerFact, fact_id).status == "current"
+        replay = turn(pipe, "Em đang tính mua Creta",
+                      thread_id=first.thread_id, idem="buying-interest")
         assert replay.status == "sent" and replay.message_id == first.message_id
         assert len(sender.sent) == 1
-        assert retry_session.query(PersonaFact).filter_by(
-            persona_id="AUTO_029", fact_key="vehicle_color").count() == 1
+        assert retry_session.query(CustomerFact).filter_by(
+            thread_id=first.thread_id, actor_id="actor-1",
+            predicate="buying_interest", status="current").count() == 1
         assert retry_session.query(Delivery).filter_by(message_id=first.message_id,
                                                        status="sent").count() == 1
 
@@ -56,12 +81,12 @@ def test_retry_restores_persona_fact_and_replay_does_not_resend(session):
 def test_recovery_database_failure_does_not_partially_activate_fact(session, monkeypatch):
     import app.engine.pipeline as pipeline_module
 
-    text = "Bác đi xe màu gì thế?"
-    first = turn(Pipeline(session, ColorProposingProvider(), FakeSender(True)),
+    text = "Em đang tính mua Creta"
+    first = turn(Pipeline(session, BuyingInterestProvider(), FakeSender(True)),
                  text, idem="atomic")
-    fact = session.execute(select(PersonaFact).where(
-        PersonaFact.persona_id == "AUTO_029",
-        PersonaFact.fact_key == "vehicle_color")).scalar_one()
+    fact = session.query(CustomerFact).filter_by(
+        thread_id=first.thread_id, actor_id="actor-1",
+        predicate="buying_interest").one()
     fact_id = fact.id
     finish = pipeline_module.finish_delivery
 
@@ -77,45 +102,34 @@ def test_recovery_database_failure_does_not_partially_activate_fact(session, mon
         retry_session.rollback()
 
     with new_session(session) as check:
-        assert check.get(PersonaFact, fact_id).status != "active"
+        assert check.get(CustomerFact, fact_id).status != "current"
         assert check.query(Delivery).filter_by(message_id=first.message_id,
                                                status="sent").count() == 0
         assert check.get(Message, first.message_id).status == "sending"
 
 
-def test_retry_restores_story_tags_and_told_once(session):
-    pid = make_persona(session, "retry-story", {"vehicle_model": "Hyundai Creta"})
+def test_retry_restores_story_told_once(session):
     text = "Bác có kỷ niệm nào đáng nhớ với xe không?"
     first = turn(Pipeline(session, FakeProvider(), FakeSender(True)), text,
-                 idem="story", persona_id=pid)
-    assert first.status == "error" and first.saved_stories
-    eid = first.saved_stories[0]["event_id"]
-    assert session.get(PersonaStory, eid).status != "active"
-    assert session.get(PersonaStory, eid).told_in_message_id is None
-    tags = session.execute(select(TagAssignment).where(
-        TagAssignment.entity_type == "story", TagAssignment.entity_id == eid
-    )).scalars().all()
-    assert tags and all(t.status != "active" for t in tags)
-    assert not session.query(StoryTold).filter_by(event_id=eid).count()
+                 idem="story")
+    assert first.status == "error"
+    assert not session.query(StoryTold).filter_by(
+        thread_id=first.thread_id).count()
 
     with new_session(session) as retry_session:
         sender = FakeSender()
         pipe = Pipeline(retry_session, NoCallsProvider(), sender)
-        recovered = turn(pipe, text, thread_id=first.thread_id, idem="story",
-                         persona_id=pid)
+        recovered = turn(pipe, text, thread_id=first.thread_id, idem="story")
         assert recovered.status == "sent" and recovered.message_id == first.message_id
-        story = retry_session.get(PersonaStory, eid)
-        assert story.status == "active" and story.told_in_message_id == first.message_id
-        tags = retry_session.query(TagAssignment).filter_by(entity_type="story",
-                                                            entity_id=eid).all()
-        assert tags and all(t.status == "active" for t in tags)
-        told = retry_session.query(StoryTold).filter_by(event_id=eid,
-                         actor_id="actor-1", message_id=first.message_id).all()
+        told = retry_session.query(StoryTold).filter_by(
+            thread_id=first.thread_id, actor_id="actor-1",
+            message_id=first.message_id).all()
         assert len(told) == 1
-        replay = turn(pipe, text, thread_id=first.thread_id, idem="story", persona_id=pid)
+        replay = turn(pipe, text, thread_id=first.thread_id, idem="story")
         assert replay.status == "sent" and len(sender.sent) == 1
-        assert retry_session.query(StoryTold).filter_by(event_id=eid,
-                         actor_id="actor-1", message_id=first.message_id).count() == 1
+        assert retry_session.query(StoryTold).filter_by(
+            thread_id=first.thread_id, actor_id="actor-1",
+            message_id=first.message_id).count() == 1
 
 
 class CorrectionProvider:
@@ -181,22 +195,24 @@ def test_retry_restores_customer_correction_and_followup(session):
 
 
 def test_multiple_delivery_failures_keep_same_draft_and_then_recover(session):
-    text = "Bác đi xe màu gì thế?"
-    first = turn(Pipeline(session, ColorProposingProvider(), FakeSender(True)), text, idem="retry")
+    text = "Em đang tính mua Creta"
+    first = turn(Pipeline(session, BuyingInterestProvider(), FakeSender(True)), text, idem="retry")
     assert first.status == "error"
     with new_session(session) as retry_session:
         failed = turn(Pipeline(retry_session, NoCallsProvider(), FakeSender(True)), text,
                       thread_id=first.thread_id, idem="retry")
         assert failed.status == "error" and failed.message_id == first.message_id
-        assert retry_session.query(PersonaFact).filter_by(persona_id="AUTO_029",
-                     fact_key="vehicle_color", status="active").count() == 0
+        assert retry_session.query(CustomerFact).filter_by(
+            thread_id=first.thread_id, actor_id="actor-1",
+            predicate="buying_interest", status="current").count() == 0
         sender = FakeSender()
         recovered = turn(Pipeline(retry_session, NoCallsProvider(), sender), text,
                          thread_id=first.thread_id, idem="retry")
         assert recovered.status == "sent" and recovered.message_id == first.message_id
         assert recovered.reply_text == first.reply_text and len(sender.sent) == 1
-        assert retry_session.query(PersonaFact).filter_by(persona_id="AUTO_029",
-                     fact_key="vehicle_color", status="active").count() == 1
+        assert retry_session.query(CustomerFact).filter_by(
+            thread_id=first.thread_id, actor_id="actor-1",
+            predicate="buying_interest", status="current").count() == 1
         assert retry_session.query(Message).filter_by(thread_id=first.thread_id, role="user").count() == 1
 
 
@@ -252,53 +268,32 @@ def test_retry_marks_existing_story_told_only_once_for_duplicate_claim(session):
                     actor_id="actor-1", message_id=first.message_id).count() == 1
 
 
-def test_retry_restores_addendum_once(session):
-    from app.models import StoryRevision
-
-    pid = make_persona(session, "retry-revision", {"vehicle_model": "Hyundai Creta"})
-    original = turn(Pipeline(session, FakeProvider(), FakeSender()),
-                    "Bác có kỷ niệm nào đáng nhớ với xe không?", persona_id=pid)
-    assert original.status == "sent" and original.saved_stories
-    eid = original.saved_stories[0]["event_id"]
-    before_version = session.get(PersonaStory, eid).version
-    text = "Chuyến đó bác đi cùng ai vậy?"
-    first = turn(Pipeline(session, FakeProvider(), FakeSender(True)), text,
-                 thread_id=original.thread_id, persona_id=pid, idem="addendum")
-    assert first.status == "error", first.validator_errors
-    rev = session.query(StoryRevision).filter_by(event_id=eid).one()
-    rev_id = rev.id
-    assert rev.status != "active"
-    assert session.get(PersonaStory, eid).version == before_version
-    with new_session(session) as retry_session:
-        sender = FakeSender()
-        pipe = Pipeline(retry_session, NoCallsProvider(), sender)
-        recovered = turn(pipe, text, thread_id=first.thread_id, persona_id=pid, idem="addendum")
-        assert recovered.status == "sent"
-        assert retry_session.get(StoryRevision, rev_id).status == "active"
-        assert retry_session.get(PersonaStory, eid).version == before_version + 1
-        assert turn(pipe, text, thread_id=first.thread_id, persona_id=pid,
-                    idem="addendum").status == "sent"
-        assert len(sender.sent) == 1
-        assert retry_session.get(PersonaStory, eid).version == before_version + 1
-
-
-def test_retry_does_not_send_stale_persona_fact_if_canon_changed(session):
-    text = "Bác đi xe màu gì thế?"
-    first = turn(Pipeline(session, ColorProposingProvider(), FakeSender(True)), text,
-                 idem="stale-color")
-    assert first.status == "error"
+def test_stale_persona_fact_blocks_recovery(session):
+    # Canon đổi sau khi snapshot được tạo -> can_recover False: không
+    # được gửi lại bản nháp dựa trên fact cũ. (In-turn propose đã gỡ
+    # nên snapshot được dựng trực tiếp từ một pending fact.)
+    thread = Thread(persona_id="AUTO_029", post_id="post-1",
+                    post_text="Bài về Creta.",
+                    post_vehicle_models=["Hyundai Creta"])
+    session.add(thread)
+    session.commit()
+    pending = PersonaFact(persona_id="AUTO_029", fact_key="vehicle_color",
+                          value="trắng", source="test", status="pending")
+    session.add(pending)
+    session.commit()
+    msg = Message(thread_id=thread.id, role="persona", actor_id="actor-1",
+                  text="Xe mình màu trắng đó bạn.", status="error")
+    session.add(msg)
+    session.commit()
+    ex = ToolExecutor(session, "AUTO_029", thread.id, "actor-1")
+    ex.pending_persona_fact_ids = [pending.id]
+    snapshot = make_snapshot(session, ex, {"claims": [], "goal": "answer_question"},
+                             opted_out=False)
+    assert can_recover(session, snapshot, msg, "AUTO_029", "actor-1") is True
     session.add(PersonaFact(persona_id="AUTO_029", fact_key="vehicle_color",
                             value="đen", source="test", status="active"))
     session.commit()
-    with new_session(session) as retry_session:
-        sender = FakeSender()
-        retried = turn(Pipeline(retry_session, NoCallsProvider(), sender), text,
-                       thread_id=first.thread_id, idem="stale-color")
-        assert retried.status in ("error", "review")
-        assert sender.sent == []
-        active = retry_session.query(PersonaFact).filter_by(
-            persona_id="AUTO_029", fact_key="vehicle_color", status="active").all()
-        assert [row.value for row in active] == ["đen"]
+    assert can_recover(session, snapshot, msg, "AUTO_029", "actor-1") is False
 
 
 def test_retry_does_not_send_revoked_story(session):

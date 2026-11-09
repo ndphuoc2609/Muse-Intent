@@ -63,33 +63,39 @@ def test_validator_sample_unlabelled_blocked():
 def test_proposal_is_pending_until_activated(session):
     ex = ToolExecutor(session, "hoang-nam", "t1", "actor-1",
                       current_message_id="m1",
-                      current_user_text="Mình thích màu trắng.")
-    r = ex.execute("propose_persona_fact",
-                   {"fact_key": "vehicle_color", "value": "trắng",
-                    "source": "generated", "evidence": "màu trắng"})
+                      current_user_text="Mình chủ yếu đi phố.")
+    r = ex.execute("propose_customer_fact",
+                   {"subject": "self", "predicate": "use_case",
+                    "value_raw": "đi phố", "evidence": "Mình chủ yếu đi phố."})
     assert r.status == "FOUND"
-    row = session.get(PersonaFact, r.data["id"])
+    row = session.get(CustomerFact, r.data["id"])
     assert row.status == "pending"
-    # get_persona_facts (active only) must NOT return the candidate.
-    got = ex.execute("get_persona_facts", {"keys": ["vehicle_color"]})
-    assert got.status == "NOT_FOUND"
+    # Pending chưa phải fact current.
+    current = session.execute(
+        select(CustomerFact).where(
+            CustomerFact.thread_id == "t1", CustomerFact.actor_id == "actor-1",
+            CustomerFact.predicate == "use_case",
+            CustomerFact.status == "current")).scalars().all()
+    assert current == []
     ex.activate_pending()
-    assert session.get(PersonaFact, r.data["id"]).status == "active"
-    got2 = ex.execute("get_persona_facts", {"keys": ["vehicle_color"]})
-    assert got2.status == "FOUND"
+    assert session.get(CustomerFact, r.data["id"]).status == "current"
 
 
 def test_proposal_rejected_on_failed_turn_does_not_pollute(session):
     ex = ToolExecutor(session, "hoang-nam", "t1", "actor-1",
                       current_message_id="m1",
-                      current_user_text="Mình thích màu đỏ.")
-    r = ex.execute("propose_persona_fact",
-                   {"fact_key": "vehicle_color", "value": "đỏ",
-                    "source": "generated", "evidence": "màu đỏ"})
+                      current_user_text="Mình chủ yếu đi phố.")
+    r = ex.execute("propose_customer_fact",
+                   {"subject": "self", "predicate": "use_case",
+                    "value_raw": "đi phố", "evidence": "Mình chủ yếu đi phố."})
     ex.reject_pending()
-    assert session.get(PersonaFact, r.data["id"]).status == "rejected"
-    assert ex.execute("get_persona_facts",
-                      {"keys": ["vehicle_color"]}).status == "NOT_FOUND"
+    assert session.get(CustomerFact, r.data["id"]).status == "rejected"
+    current = session.execute(
+        select(CustomerFact).where(
+            CustomerFact.thread_id == "t1", CustomerFact.actor_id == "actor-1",
+            CustomerFact.predicate == "use_case",
+            CustomerFact.status == "current")).scalars().all()
+    assert current == []
 
 
 def test_customer_facts_father_and_mother_do_not_overwrite_each_other(session):
@@ -165,9 +171,11 @@ class _PlannerFirstStub:
         self.calls += 1
         if self.calls == 1:
             return ProviderResult(
-                tool_calls=[ToolCall(name="propose_persona_fact",
-                                     arguments={"fact_key": "vehicle_color",
-                                                "value": "đỏ"})],
+                tool_calls=[ToolCall(name="propose_customer_fact",
+                                     arguments={"subject": "self",
+                                                "predicate": "use_case",
+                                                "value_raw": "đi phố",
+                                                "evidence": "Chào buổi sáng"})],
                 usage={"cost_usd": 0.0, "http_attempts": 0})
         if self.calls == 2:
             return ProviderResult(
@@ -191,10 +199,9 @@ def test_mutation_before_plan_is_blocked(session):
     assert r.reply_text == "Chào bạn."
     # The pre-plan propose must NOT have become a fact.
     rows = session.execute(
-        select(PersonaFact).where(
-            PersonaFact.persona_id == "hoang-nam",
-            PersonaFact.fact_key == "vehicle_color",
-            PersonaFact.status == "active")).scalars().all()
+        select(CustomerFact).where(
+            CustomerFact.thread_id == r.thread_id,
+            CustomerFact.actor_id == "actor-1")).scalars().all()
     assert rows == []
 
 

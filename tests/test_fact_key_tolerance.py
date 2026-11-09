@@ -11,11 +11,12 @@ lỗi này vì Fake gọi get_persona_facts không truyền keys.
 
 Fix (engine-first, không chỉ sửa prompt):
 - synonym map: key đoán -> key registry.
-- fallback: nếu toàn bộ key yêu cầu đều lạ ngoài registry mà canon còn
-  fact active thì trả toàn bộ canon kèm reason rõ ràng, thay vì [].
+- key lạ ngoài registry thì NOT_FOUND + gợi ý registry (Phase 2b bỏ
+  fallback dump toàn bộ canon — model phải hỏi lại đúng key thay vì
+  nhận cả canon không liên quan).
 - giữ NOT_FOUND khi model hỏi đúng tên key trong registry nhưng fact
-  chưa active (VD: vehicle_color chưa propose) — để đường propose và
-  test pending-isolation vẫn giữ nguyên ý nghĩa.
+  chưa active (VD: vehicle_color chưa có trong canon) — để đường admin
+  draft và test pending-isolation vẫn giữ nguyên ý nghĩa.
 """
 import json
 
@@ -45,16 +46,20 @@ def test_luna_guessed_keys_return_seeded_facts(pipe, session):
     assert by_key.get("purchased_at") == "2024-03"
 
 
-def test_unknown_only_keys_fallback_to_all_canon(pipe, session):
+def test_unknown_only_keys_return_not_found_with_registry_hint(pipe, session):
+    # Phase 2b: bỏ fallback dump toàn bộ canon cho key lạ — key không
+    # có trong registry thì NOT_FOUND + gợi ý, để model hỏi lại đúng key
+    # thay vì nhận cả canon không liên quan.
     from tests.conftest import make_persona
     make_persona(session, "fix-fact-keys", {
         "vehicle_model": "Hyundai Creta",
         "purchased_at": "2024-03"})
     ex = ToolExecutor(session, "fix-fact-keys", "t", "actor-1")
     r = ex.execute("get_persona_facts", {"keys": ["foo_bar_xyz"]})
-    assert r.status == "FOUND"
-    assert "keys_unmatched_fallback_all" in (r.reason or "")
-    assert any(f["fact_key"] == "vehicle_model" for f in r.data)
+    assert r.status == "NOT_FOUND"
+    assert r.data == []
+    assert "registry" in (r.reason or "")
+    assert "vehicle_model" in (r.reason or "")
 
 
 def test_known_but_inactive_key_stays_not_found(pipe, session):

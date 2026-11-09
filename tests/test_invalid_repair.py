@@ -1,33 +1,43 @@
-"""Invalid model repairs must not replace an existing usable reply."""
+"""Invalid model repairs must not replace an existing usable reply.
+
+Lỗi soft (data_disclaimer) -> một lần repair; repair không hợp lệ
+(text None/thiếu/rỗng) thì giữ nguyên bản gốc và gửi kèm diagnostics.
+Lỗi blocking thì giữ ở review (xem test_auto_send_review)."""
 import pytest
 
 from app.config import SETTINGS
 from app.engine.fake_sender import FakeSender
 from app.engine.pipeline import Pipeline
-from app.models import PersonaFact
 from app.providers.base import ProviderResult, ToolCall
+from app.providers.fake import FakeProvider
 from conftest import turn
-from test_auto_send_review import ReplyWithValidationError
-from test_color_propose_flow import ColorProposingProvider
+from test_auto_send_review import ReplyWithSoftError
 
 
 class InvalidRepairProvider:
+    """Lượt đầu: final có lỗi soft; lượt repair: trả final không hợp lệ."""
+
     def __init__(self, arguments):
         self.arguments = arguments
-        self.initial = ReplyWithValidationError(ColorProposingProvider())
+        self.initial = ReplyWithSoftError(FakeProvider())
+        self.initial_text = None
 
     def chat(self, messages, tools):
         if any(m.get("role") == "user" and
                str(m.get("content", "")).startswith("VALIDATOR_FEEDBACK:")
                for m in messages):
             return ProviderResult(tool_calls=[ToolCall("submit_final_reply", self.arguments)])
-        return self.initial.chat(messages, tools)
+        result = self.initial.chat(messages, tools)
+        for call in result.tool_calls:
+            if call.name == "submit_final_reply":
+                self.initial_text = call.arguments.get("text")
+        return result
 
 
 class EmptyFinalProvider:
     def __init__(self, text):
         self.text = text
-        self.initial = ColorProposingProvider()
+        self.initial = FakeProvider()
 
     def chat(self, messages, tools):
         result = self.initial.chat(messages, tools)
@@ -46,16 +56,15 @@ class EmptyFinalProvider:
 def test_invalid_repair_keeps_and_sends_original_with_diagnostics(session, monkeypatch, arguments):
     monkeypatch.setattr(SETTINGS, "max_validator_repairs", 1)
     sender = FakeSender()
-    result = turn(Pipeline(session, InvalidRepairProvider(arguments), sender),
+    provider = InvalidRepairProvider(arguments)
+    result = turn(Pipeline(session, provider, sender),
                   "Bác đi xe màu gì thế?", idem="invalid-repair")
 
     assert result.status == "sent"
-    assert result.reply_text == "Xe mình màu trắng đó bạn. Giá xe là 999 triệu đồng."
-    assert any("uncovered_factual_assertion" in error for error in result.validator_errors)
+    assert result.reply_text == provider.initial_text
+    assert result.reply_text.endswith("Mình chưa có dữ liệu để so sánh.")
+    assert any("data_disclaimer" in error for error in result.validator_errors)
     assert len(sender.sent) == 1 and sender.sent[0]["text"] == result.reply_text
-    assert session.query(PersonaFact).filter_by(persona_id="AUTO_029",
-                                               fact_key="vehicle_color",
-                                               status="active").count() == 1
 
 
 @pytest.mark.parametrize("empty_text", ["", "   "])
@@ -67,6 +76,3 @@ def test_empty_initial_reply_is_not_sent(session, empty_text):
     assert result.status == "error"
     assert not result.reply_text
     assert sender.sent == []
-    assert session.query(PersonaFact).filter_by(persona_id="AUTO_029",
-                                               fact_key="vehicle_color",
-                                               status="active").count() == 0

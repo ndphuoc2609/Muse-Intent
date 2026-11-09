@@ -2,10 +2,14 @@
 
 Thu tu quyet dinh (an toan truoc, tiet kiem sau):
 1. Dang co cau hoi cho cua actor -> "pipeline" (binh luan co the la dap an).
+   Rieng phan hoi ngan ('ok'/👍) chi di pipeline khi cau hoi dang cho
+   la dang co/khong; cau mo thi 'ok' khong phai dap an -> "bypass".
 2. Co tin hieu lead (luot nay hoac luot truoc, pipeline da tinh) -> "pipeline".
 3. Khong co noi dung (rong / chi emoji / chi dau cau) -> "bypass".
 4. Khop danh sach phan hoi xac dinh (ok, da, vang, cuoi...) -> "bypass".
-5. Khop ngan hang FAQ (cau tra loi da duyet) -> "faq".
+5. Khop ngan hang FAQ (cau tra loi da duyet) -> "faq"; neu binh luan
+   con mang them y khac (gia/dai ly/dat coc) thi "pipeline" thay vi
+   tra loi mot phan.
 6. Con lai -> "pipeline".
 
 Gate la ham thuan: nhan text + 2 co (has_pending, has_lead) + bank,
@@ -36,6 +40,40 @@ NO_REPLY_EXACT = {
     "u", "um", "uhm", "da", "da a", "vang", "vang a",
     "haha", "kk", "kkk", "hihi",
 }
+
+# Ý khác ngoài FAQ đã khớp (giá, đại lý, đặt cọc...): FAQ chỉ trả lời
+# được đúng một ý đã duyệt, nên lượt mang thêm ý này phải đi pipeline
+# thay vì nhận câu trả lời một phần ('Xe này có tốn xăng không, giá
+# bao nhiêu?' không được chỉ trả lời phần xăng).
+_OTHER_INTENT_SEQUENCES = (
+    ("gia", "bao", "nhieu"), ("bao", "nhieu"), ("bao", "nhieu", "tien"),
+    ("lan", "banh"), ("tra", "gop"), ("gia", "xe"), ("gia", "ban"),
+    ("dai", "ly"), ("dat", "coc"),
+)
+
+
+def looks_yes_no(question: str) -> bool:
+    """Câu hỏi có phải dạng có/không không (trả lời được bằng 'ok'/'ừ').
+    Heuristic: kết thúc bằng 'không?'/'chưa?' hoặc dạng 'có ... không'.
+    Câu hỏi mở ('thích điểm nào nhất?', 'ở khu vực nào?') thì 'ok'
+    không phải là đáp án."""
+    n = normalize(question)
+    if not n:
+        return False
+    if n.endswith(("khong", "chua")):
+        return True
+    toks = n.split()
+    return "co" in toks and "khong" in toks
+
+
+def _has_other_intent(norm: str) -> bool:
+    """Text đã chuẩn hóa có mang thêm ý ngoài FAQ đã khớp không."""
+    toks = norm.split()
+    for seq in _OTHER_INTENT_SEQUENCES:
+        if any(toks[i:i + len(seq)] == list(seq)
+               for i in range(len(toks) - len(seq) + 1)):
+            return True
+    return False
 
 
 @dataclass
@@ -130,22 +168,40 @@ def match_faq(text: str, bank: list[dict]) -> dict | None:
 
 
 def decide_gate(text: str, has_pending: bool, has_lead: bool,
-                bank: list[dict] | None = None) -> GateDecision:
+                bank: list[dict] | None = None,
+                pending_questions: list[str] | None = None) -> GateDecision:
     """Quy trinh 6 buoc o docstring module. Thu tu la hop dong:
-    doi override (pending, lead) luon thang truoc moi luat tiet kiem."""
+    doi override (pending, lead) luon thang truoc moi luat tiet kiem.
+    Ngoai le: phan hoi ngan kieu 'ok'/👍 chi tiep tuc pipeline khi no
+    thuc su tra loi mot cau hoi dang cho dang co/khong; neu cau hoi
+    dang cho la cau mo ('thich diem nao nhat?') thi 'ok' khong phai dap
+    an nen bypass."""
+    norm = normalize(text)
     if has_pending:
+        if (not norm or norm in NO_REPLY_EXACT) and pending_questions:
+            if any(looks_yes_no(q) for q in pending_questions):
+                return GateDecision(
+                    "pipeline",
+                    "phan hoi ngan tra loi cau hoi co/khong dang cho")
+            return GateDecision(
+                "bypass",
+                "phan hoi ngan khong tra loi cau hoi mo dang cho")
         return GateDecision("pipeline",
                             "co cau hoi cho cua actor — binh luan co the la dap an")
     if has_lead:
         return GateDecision("pipeline",
                             "co tin hieu lead — can chay du pipeline")
-    norm = normalize(text)
     if not norm:
         return GateDecision("bypass", "binh luan rong / chi emoji / chi dau cau")
     if norm in NO_REPLY_EXACT:
         return GateDecision("bypass", f"phan hoi xac dinh ({norm!r})")
     entry = match_faq(text, bank if bank is not None else load_bank())
     if entry is not None:
+        if _has_other_intent(norm):
+            return GateDecision(
+                "pipeline",
+                f"khop FAQ entry {entry['id']} nhung binh luan con y khac "
+                "(gia/dai ly/dat coc) — can tra loi du y")
         return GateDecision("faq",
                             f"khop FAQ entry {entry['id']}",
                             faq_id=entry["id"], answer=entry["answer"])

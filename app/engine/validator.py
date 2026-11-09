@@ -37,6 +37,39 @@ TRANSACTION_PHRASES = [
     # transcript 2026-11-04: "Sale sẽ liên hệ theo thông tin em để lại").
     "sale sẽ liên hệ", "sale sẽ gọi",
 ]
+# Lỗi BLOCKING (không được gửi, giữ ở review): sai nguồn/sai xe, dữ
+# liệu cá nhân, opt-out/từ chối, cam kết giao dịch, khai báo danh tính
+# sai. Lỗi còn lại là SOFT (giọng điệu/câu hỏi chung): sửa 1 vòng rồi
+# gửi kèm lỗi trong trace. Phân loại theo tiền tố trước dấu ':'.
+BLOCKING_ERROR_PREFIXES = (
+    "transaction_confirmation", "private_request", "opt_out_followup",
+    "refused_question", "ai_identity", "stop_on_generic_refusal",
+    "unsourced_claim", "claim_kind_mismatch", "product_inactive",
+    "product_expired", "product_sample_unlabelled",
+    "product_value_mismatch", "persona_value_mismatch",
+    "story_unsaved_detail", "rag_unsaved_detail",
+    "company_unsaved_detail", "uncovered_factual_assertion",
+)
+
+
+def is_blocking_error(error: str) -> bool:
+    """Một lỗi validator có chặn gửi không (xem BLOCKING_ERROR_PREFIXES)."""
+    prefix = (error or "").split(":", 1)[0].strip()
+    return prefix in BLOCKING_ERROR_PREFIXES
+
+
+# Key câu hỏi -> cụm từ trong câu trả lời HIỂN THỊ cho thấy đang hỏi
+# lại key đó (validator §4 trước đây chỉ kiểm tra followup_key, nên
+# câu hỏi lại viết trần trong text vẫn lọt). Chỉ dùng cho key đã biết;
+# key lạ thì chỉ followup_key mới bắt được.
+REFUSED_KEY_PHRASES = {
+    "phone": ("số điện thoại", "sđt", "số của bạn", "cho mình xin số",
+              "để lại số", "gửi số"),
+    "budget": ("ngân sách", "tầm tiền", "tầm bao nhiêu", "bao nhiêu tiền"),
+    "area": ("khu vực nào", "bạn ở đâu", "ở tỉnh nào", "ở đâu vậy"),
+    "like_point": ("thích điểm nào", "thích nhất điểm gì",
+                   "ưng điểm nào"),
+}
 PRIVATE_REQUEST_PHRASES = [
     "cho mình số điện thoại", "cho xin số điện thoại", "địa chỉ nhà của bạn",
     "gửi số điện thoại", "cho mình địa chỉ nhà",
@@ -49,6 +82,14 @@ DATA_DISCLAIMER_PHRASES = [
     "chưa có dữ liệu", "không có dữ liệu",
     "chưa có thông số", "không có thông số",
 ]
+# Từ màu xe thường gặp (để phân biệt 'màu trắng' khẳng định màu với
+# 'Màu xe thì...' chỉ nhắc tới khái niệm màu). Màu lạ ngoài danh sách
+# vẫn bị bắt khi câu khẳng định về xe của persona (xem _persona_car).
+_KNOWN_COLORS = {
+    "trắng", "đen", "đỏ", "xanh", "vàng", "bạc", "xám", "ghi", "nâu",
+    "cam", "hồng", "tím", "be", "kem", "đồng", "cát", "rêu", "lam",
+    "ngọc", "chàm", "mận",
+}
 _ECHO_MARKERS = ("bạn nói", "bạn bảo", "theo bạn", "bạn nhắc", "bạn kể")
 # Câu hỏi chung chung — hỏi mà không khai thác gì cụ thể. So khớp trên
 # dạng bỏ dấu để "không" / "không ạ" / "không anh ạ" đều bắt được.
@@ -117,6 +158,10 @@ def _uncovered_errors(text: str, claims: list[dict], retrieved: dict,
                       user_text: str = "") -> list[str]:
     errors: list[str] = []
     claims = claims or []
+    # Giá trị có kiểu mà CHÍNH KHÁCH vừa nêu trong lượt này không phải
+    # khẳng định mới của persona — persona nhắc lại con số khách đưa
+    # ("300 km") không cần claim (trước đây bị chặn oan rồi gửi kèm lỗi).
+    _echo_claims = [{"value": user_text}] if user_text else []
     for sentence, is_question in _sentences(text):
         if is_question:
             continue
@@ -130,6 +175,8 @@ def _uncovered_errors(text: str, claims: list[dict], retrieved: dict,
             if _is_negated_before(sentence, m.start()):
                 continue
             raw = m.group(0).strip()
+            if _claim_covers_typed(_echo_claims, find_money_raw, raw):
+                continue
             if not _claim_covers_typed(claims, find_money_raw, raw):
                 errors.append(
                     f"uncovered_factual_assertion: tiền '{raw}' trong câu "
@@ -138,6 +185,8 @@ def _uncovered_errors(text: str, claims: list[dict], retrieved: dict,
         for m in re.finditer(r"\d+(?:[.,]\d+)?\s*%", sentence):
             if _is_negated_before(sentence, m.start()):
                 continue
+            if _claim_covers_typed(_echo_claims, parse_percent, m.group(0)):
+                continue
             if not _claim_covers_typed(claims, parse_percent, m.group(0)):
                 errors.append(
                     f"uncovered_factual_assertion: phần trăm '{m.group(0)}' "
@@ -145,13 +194,16 @@ def _uncovered_errors(text: str, claims: list[dict], retrieved: dict,
         for m in re.finditer(r"\d+(?:[.,]\d+)?\s*km\b", sentence, re.IGNORECASE):
             if _is_negated_before(sentence, m.start()):
                 continue
+            if _claim_covers_typed(_echo_claims, parse_distance_km, m.group(0)):
+                continue
             if not _claim_covers_typed(claims, parse_distance_km, m.group(0)):
                 errors.append(
                     f"uncovered_factual_assertion: quãng đường '{m.group(0)}' "
                     "không có claim/bằng chứng phù hợp")
         for d in parse_dates(sentence):
             raw = _date_raw(sentence, d)
-            if raw and not _claim_covers_typed(claims, parse_dates, raw):
+            if raw and not _claim_covers_typed(_echo_claims, parse_dates, raw) \
+                    and not _claim_covers_typed(claims, parse_dates, raw):
                 errors.append(
                     f"uncovered_factual_assertion: ngày/tháng '{raw}' "
                     "không có claim/bằng chứng phù hợp")
@@ -159,16 +211,22 @@ def _uncovered_errors(text: str, claims: list[dict], retrieved: dict,
         # phủ màu khi: claim đó trỏ tới fact có giá trị đúng màu đó
         # (ref_id đã được tool trả về), hoặc claim value sau khi bỏ từ
         # đệm ("Xe của mình màu trắng" -> "trắng") bằng đúng màu đó.
+        # Chỉ bắt khi X là từ màu đã biết, hoặc câu khẳng định về xe của
+        # persona ('Xe mình màu mận chín'): 'Màu xe thì mình chưa chắc'
+        # không phải khẳng định màu nên 'xe' sau 'màu' không tính.
+        _persona_car = any(p in low for p in (
+            "xe mình", "xe của mình", "mình đi", "mình cũng"))
         for m in re.finditer(r"\bmàu\s+(\w+)", sentence, re.IGNORECASE):
             color = _norm(m.group(1))
-            # Echo màu khách vừa nêu: khách nói "màu trắng" ở lượt này
-            # thì persona nhắc lại "màu trắng" không phải khẳng định mới
-            # về xe của persona — không bắt claim (live 2026-11-04: 3
-            # lượt review chỉ vì echo "trắng" khách vừa nêu). So theo
-            # cùng cách trích một từ như phía persona; màu ghép kiểu
-            # "trắng sữa" vẫn trích thành "trắng" ở cả hai phía.
-            if re.search(r"\bmàu\s+" + re.escape(color) + r"\b",
-                         _norm(user_text)):
+            if color not in _KNOWN_COLORS and not _persona_car:
+                continue
+            # Echo màu khách vừa nêu CHỈ miễn khi câu này KHÔNG khẳng
+            # định về xe của persona: "Xe mình cũng màu trắng" (chủ thể
+            # là xe persona) vẫn phải có claim, dù khách vừa nói "màu
+            # trắng"; còn "Màu trắng đẹp đó bạn" chỉ đồng tình với sở
+            # thích của khách thì không phải khẳng định mới.
+            if not _persona_car and re.search(
+                    r"\bmàu\s+" + re.escape(color) + r"\b", _norm(user_text)):
                 continue
             covered = False
             for c in claims:
@@ -226,26 +284,43 @@ def _stripped_tokens(text: str) -> list[str]:
 def _negated_against(tokens: list[str], other_tokens: set[str]) -> bool:
     """Marker phủ định trong tokens có 'đánh' vào nội dung của other không.
 
-    Marker chỉ tính khi một từ trong cửa sổ 2 token sau nó xuất hiện
-    trong other. Nhờ vậy 'đoạn ngập không rõ độ sâu' (từ sau 'không'
-    là 'rõ', không có trong claim) không bị tính là phủ định mệnh đề
-    chính — hồi quy test_storytold_dedupe (mem_3) — trong khi 'chưa
-    từng chạy đường dài' (từ 'chạy' có trong claim) vẫn tính.
+    Marker chỉ tính khi một từ trong cửa sổ sau nó xuất hiện trong
+    other. Cửa sổ mặc định 2 token (đủ cho 'không rõ độ sâu' không đánh
+    vào mệnh đề chính — hồi quy test_storytold_dedupe, mem_3), nhưng
+    nới ra 5 token khi phủ định mang nghĩa 'chưa từng có dịp làm việc
+    gì': 'chưa/chẳng' ('chưa có dịp nào lái...', động từ nằm xa sau
+    marker) và 'không có' ('không có dịp nào lái...'). Phủ định kép
+    không được giải quyết.
     Ngoại lệ: 'không chỉ' / 'không những' là nhượng bộ; không dùng
-    'đừng' vì sau khi bỏ dấu nó trùng 'đúng'. Phủ định kép không được
-    giải quyết.
+    'đừng' vì sau khi bỏ dấu nó trùng 'đúng'.
     """
     for i, tok in enumerate(tokens):
         if tok in ("chua", "chang"):
-            if set(tokens[i + 1:i + 3]) & other_tokens:
+            if set(tokens[i + 1:i + 6]) & other_tokens:
                 return True
         elif tok == "khong":
             nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
             if nxt in ("chi", "nhung"):
                 continue
-            if set(tokens[i + 1:i + 3]) & other_tokens:
+            window = 5 if nxt == "co" else 2
+            if set(tokens[i + 1:i + 1 + window]) & other_tokens:
                 return True
     return False
+
+
+def _proper_noun_words(text: str) -> set[str]:
+    """Từ riêng viết hoa trong text (tên địa danh, tên xe, tên người),
+    trừ từ đầu câu (viết hoa do quy tắc câu, không phải tên riêng).
+    Tiếng Việt hiếm khi viết hoa giữa câu ngoài tên riêng nên đây là
+    tín hiệu thuộc tính khá chắc cho địa danh/tên xe."""
+    words: set[str] = set()
+    for sentence, _ in _sentences(text):
+        parts = sentence.split()
+        for w in parts[1:]:
+            clean = w.strip(".,;:!?()\"'“”")
+            if clean and clean[0].isupper() and clean.isalpha():
+                words.add(clean)
+    return words
 
 
 def _story_matches(claim_value: str, fact_value: str) -> bool:
@@ -259,6 +334,15 @@ def _story_matches(claim_value: str, fact_value: str) -> bool:
     typed = typed_match(claim_value, fact_value)
     if typed is not None:
         return typed
+    # Thuộc tính tên riêng: hai bên đều có tên riêng mà mỗi bên có một
+    # tên bên kia không có (Vũng Tàu vs Đà Lạt, Creta vs Tucson) thì
+    # là hai địa danh/xe khác nhau — overlap token chung 0.7 không cứu
+    # được. Chỉ bắt khi CẢ HAI phía đều có tên riêng lệch nhau: claim
+    # nhắc tên có trong fact (kể cả tên rút gọn như 'Thảo' trong
+    # 'Đặng Thu Thảo') thì qua.
+    _cw, _fw = _proper_noun_words(claim_value), _proper_noun_words(fact_value)
+    if _cw and _fw and (_cw - _fw) and (_fw - _cw):
+        return False
     ct = set(_norm(claim_value).split())
     ft = set(_norm(fact_value).split())
     if not ct or not ft:
@@ -306,38 +390,27 @@ def validate(final: dict, ctx: dict) -> list[str]:
         followup_q = final.get("followup_question") or ""
         if _is_generic_question(followup_q) or (
                 _is_generic_question(text) and text.count("?") == 1):
-            # Trần khai thác 1-2 câu: hỏi đủ rồi thì lỗi không còn là
-            # "hỏi cụ thể hơn" mà là "chuyển sang sale + SĐT".
-            if (ctx.get("asked_count") or 0) >= 2:
-                errors.append(
-                    "exploration_cap: đã hỏi đủ 1-2 câu về need, KHÔNG hỏi "
-                    "thêm câu khai thác nữa — chuyển sang giới thiệu sale "
-                    "bên Hyundai + xin SĐT theo LEAD_CAPTURE")
-            else:
-                errors.append(
-                    "generic_followup_on_stated_need: khách vừa nêu nhu cầu "
-                    "cụ thể nhưng câu hỏi duy nhất lại chung chung — hỏi "
-                    "một câu CỤ THỂ theo nhu cầu đó (quãng đường mỗi ngày, "
-                    "xe đang đi, mức tiêu hao hiện tại, thời gian dự định "
-                    "mua...) thay vì câu chung chung")
+            # Hết trần khai thác thì thôi không hỏi thêm câu khai thác
+            # nữa — nhưng KHÔNG tự đẩy sang sale + SĐT (luật cũ): giới
+            # thiệu sale chỉ khi khách chủ động muốn mua/kết nối.
+            errors.append(
+                "generic_followup_on_stated_need: khách vừa nêu nhu cầu "
+                "cụ thể nhưng câu hỏi duy nhất lại chung chung — hỏi "
+                "một câu CỤ THỂ theo nhu cầu đó (quãng đường mỗi ngày, "
+                "xe đang đi, mức tiêu hao hiện tại, thời gian dự định "
+                "mua...) thay vì câu chung chung")
     # 2d. Chốt hội thoại chỉ vì khách nói "không" với câu hỏi chung.
     # "Không" đó từ chối câu hỏi chung, không phải từ chối trò chuyện;
     # khi need còn chưa khai thác thì phải chuyển sang câu cụ thể.
-    # Đã hỏi đủ 1-2 câu rồi thì chuyển sang sale + SĐT, không hỏi thêm.
+    # Đã hỏi đủ 1-2 câu rồi thì dừng khai thác, trả lời tự nhiên theo
+    # mạch trò chuyện — không tự đẩy sang sale + SĐT (luật cũ).
     if goal == "stop" and _is_bare_negation(ctx.get("user_text", "")) \
             and _is_generic_question(ctx.get("prev_persona_text", "")):
-        if (ctx.get("asked_count") or 0) >= 2:
-            errors.append(
-                "stop_on_generic_refusal: khách chỉ nói 'không' với câu hỏi "
-                "chung chung của lượt trước, chưa phải muốn dừng — KHÔNG "
-                "chốt hội thoại; đã hỏi đủ 1-2 câu nên chuyển sang giới "
-                "thiệu sale bên Hyundai + xin SĐT theo LEAD_CAPTURE")
-        else:
-            errors.append(
-                "stop_on_generic_refusal: khách chỉ nói 'không' với câu hỏi "
-                "chung chung của lượt trước, chưa phải muốn dừng — KHÔNG "
-                "chốt hội thoại, hãy hỏi một câu CỤ THỂ về nhu cầu khách "
-                "đã nêu thay vì dừng ở đây")
+        errors.append(
+            "stop_on_generic_refusal: khách chỉ nói 'không' với câu hỏi "
+            "chung chung của lượt trước, chưa phải muốn dừng — KHÔNG "
+            "chốt hội thoại, hãy hỏi một câu CỤ THỂ về nhu cầu khách "
+            "đã nêu thay vì dừng ở đây")
     # 2e. Câu dọn đường cho từ chối khi xin SĐT: "không tiện thì thôi"
     # nói TRƯỚC khi khách từ chối là sai hoàn toàn (feedback transcript
     # 2026-11-04) — việc dừng xin SĐT chỉ xảy ra SAU khi khách thực sự
@@ -353,10 +426,19 @@ def validate(final: dict, ctx: dict) -> list[str]:
     if ctx.get("opted_out"):
         if final.get("followup_question"):
             errors.append("opt_out_followup: khách muốn dừng nhưng vẫn hỏi thêm")
-    # 4. Hỏi lại key khách đã từ chối.
+    # 4. Hỏi lại key khách đã từ chối: kiểm tra cả followup_key lẫn
+    # câu hỏi viết trần trong text hiển thị (chỉ kiểm followup_key thì
+    # câu "Cho mình xin số điện thoại nhé" không có key vẫn lọt).
     for key in ctx.get("refused_keys", []):
         if final.get("followup_key") == key:
             errors.append(f"refused_question: hỏi lại '{key}' khách đã từ chối")
+            continue
+        for phrase in REFUSED_KEY_PHRASES.get(key, ()):
+            if phrase in low:
+                errors.append(
+                    f"refused_question: hỏi lại '{key}' khách đã từ chối "
+                    f"(trong text hiển thị: '{phrase}')")
+                break
     # 5. AI identity: phải minh bạch.
     if ctx.get("asked_ai_identity") and SETTINGS.ai_disclosure[:20].lower() \
             not in low and "persona hư cấu" not in low and "không phải người thật" not in low:
