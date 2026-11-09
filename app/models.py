@@ -161,7 +161,7 @@ class Message(Base):
     actor_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     role: Mapped[str] = mapped_column(String(32))  # user | persona | system
     text: Mapped[str] = mapped_column(Text)
-    # draft | sent | blocked | review | error
+    # draft | sending | sent | blocked | review | error
     status: Mapped[str] = mapped_column(String(32), default="draft")
     idempotency_key: Mapped[str | None] = mapped_column(
         String(128), nullable=True)

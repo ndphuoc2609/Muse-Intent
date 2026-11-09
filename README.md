@@ -7,8 +7,12 @@ Kiến trúc, schema và planner ở đây viết lại từ đầu; các giới
 
 Persona trò chuyện như **người dùng bình thường chia sẻ trải nghiệm**
 (`peer_user`), không phải nhân viên bán hàng, không xác nhận giao dịch.
-Khi khách hỏi trực tiếp có phải AI không, hệ thống trả lời minh bạch là
-persona hư cấu, không phải người thật.
+Khi khách hỏi trực tiếp về danh tính, hệ thống nói rõ đây là AI mô phỏng.
+Theo quyết định ghi trong `app/seed.py`, 200 persona nhập vào được đánh dấu
+là dựa trên người dùng thật; nội dung profile/memory có thể được sinh theo mẫu.
+
+Tích hợp hệ thống khác: xem [docs/api-integration.md](docs/api-integration.md).
+API trả câu trả lời cho bên tích hợp; FakeSender chưa gửi ra kênh bên ngoài.
 
 ## 1. Kiến trúc tổng thể và sơ đồ luồng
 
@@ -39,20 +43,22 @@ Khách (sandbox UI / API)
        3. Validator (engine/validator.py): claim phải có ref_id từ tool
           result của lượt và khớp giá trị THEO KIỂU (tiền/ngày/%/km);
           khẳng định có dữ kiện trong văn bản phải được claim bao phủ;
-          chặn xác nhận cọc, xin SĐT/địa chỉ nhà ở kênh public, hỏi lại
+          phát hiện xác nhận cọc, xin SĐT/địa chỉ nhà ở kênh public, hỏi lại
           khi opt-out, product sample không ghi rõ là mẫu; repair tối đa
-          MAX_VALIDATOR_REPAIRS vòng, hết vòng -> status review (không tự
-          thay câu chung chung).
+          MAX_VALIDATOR_REPAIRS vòng; sau đó gửi tự động kể cả khi vẫn còn
+          lỗi. Lỗi được giữ trong `validator_errors` và trace.
        4. Cập nhật QuestionState: chỉ ANSWERED khi planner nêu đúng key;
           chuyển chủ đề giữ nguyên pending, không tự redirected; followup
           chỉ được tạo khi delivery thành công.
        5. FakeSender: chỉ khi sent mới activate proposals, ghi Delivery +
           told_in_message_id + story_told (kể cả story truy xuất lại).
           Gửi lỗi -> status error, proposals bị reject, story chưa bị
-          đánh dấu đã kể.
+          đánh dấu đã kể. Retry cùng key dùng lại draft và khôi phục dữ kiện
+          khi gửi thành công; nếu hội thoại hoặc dữ kiện liên quan đã đổi,
+          hoặc draft cũ thiếu thông tin phục hồi, hệ thống từ chối gửi lại.
        Chi tiết đầy đủ: docs/improvement-report.md (branch
        improve/claim-history-idempotency, 2026-10-30).
-  -> Message (draft/sent/review/error) + trace đầy đủ cho sandbox
+  -> Message (draft/sent/error) + trace đầy đủ cho sandbox
 ```
 
 **MODEL làm gì:** hiểu tiếng Việt, nhận diện nhiều ý/lượt, giải quyết tham
@@ -74,7 +80,7 @@ persona-dialogue/
     db.py                # engine SQLite (mặc định) / Postgres (DATABASE_URL)
     models.py            # schema duy nhất cho cả 2 dialect
     schemas.py           # contract planner / tool result / final reply (v1)
-    seed.py              # seed 200 persona AUTO_* từ data/personas.json (HƯ CẤU)
+    seed.py              # seed 200 persona AUTO_* từ data/personas.json
     api.py / main.py     # FastAPI + sandbox UI
     static/index.html    # sandbox: chọn persona, comment nhiều lượt, trace
     providers/
@@ -140,8 +146,8 @@ reply rồi bỏ đi:
 6. Chỉ khi FakeSender báo sent, story mới được đánh dấu `told_in_message_id`.
 
 **Cảnh báo trung thực:** cơ chế trên giảm trùng/mâu thuẫn có cấu trúc,
-nhưng **không bảo đảm tuyệt đối** không có mâu thuẫn ngữ nghĩa — review
-vẫn là lớp cuối, và story hư cấu vẫn gắn nhãn `fictional_generated`.
+nhưng **không bảo đảm tuyệt đối** không có mâu thuẫn ngữ nghĩa; story
+hư cấu vẫn gắn nhãn `fictional_generated`.
 
 ## 5. Cài đặt và chạy sandbox
 
@@ -153,7 +159,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 #   Bước 1: bấm "Seed persona mẫu" -> chọn persona ở dropdown
 #   Bước 2: nhập nội dung bài viết -> bấm "Tạo bài viết" (POST /threads)
 #   Bước 3: chọn người bình luận -> nhập comment -> bấm "Gửi comment",
-#           persona trả lời ngay dưới đó kèm trạng thái sent/review/error
+#           persona trả lời ngay dưới đó kèm trạng thái sent/error
 #           và trace mở rộng (planner, tool, fact/story đã lưu, validator)
 # API: POST /seed, POST /threads, POST /turns, GET /personas/AUTO_029,
 #      GET /threads/{id}/messages, POST /personas/{id}/stories/{event_id}/revoke
@@ -167,6 +173,9 @@ Docker Compose (app + Postgres 16):
 ```bash
 docker compose up --build   # app ở http://127.0.0.1:8000/
 ```
+
+Lưu ý: seed đồng bộ danh sách persona từ file nguồn và xóa dữ liệu của
+persona không còn trong nguồn. Kiểm tra dữ liệu trước khi seed trên DB đang dùng.
 
 ## Khắc phục lỗi thường gặp
 
@@ -284,8 +293,8 @@ là giống nhau, đã có test riêng cho trường hợp nhiều xe -> ambiguo
   event_type="memory", profile từ occupation/lifestyle; KHÔNG có
   purchased_at/trim/is_first_car, KHÔNG có category/tag taxonomy
   (category 5 nhóm và hashtag của nguồn giữ nguyên trong JSON để bước
-  RAG dùng sau). is_fictional=True theo giả định mã AUTO_ — cần Phước
-  xác nhận fictional trước khi dùng rộng.
+  RAG dùng sau). Theo quyết định được ghi trong `app/seed.py`, các persona
+  này có `is_fictional=False`; nội dung nhập có thể được tạo theo mẫu.
 - Planner là tool đầu tiên trong vòng tool calling thay vì 1 LLM call
   riêng (lý do ở §1).
 - `submit_final_reply` là một tool để ép structured JSON thay vì parse
@@ -333,8 +342,8 @@ Persona có chiều sâu, nhất quán, khơi gợi nhu cầu tự nhiên — kh
 
 - Không có `SEED_FACTS` mặc định làm giá thật: mọi product fact mẫu đều
   gắn nhãn sample và reply phải ghi rõ.
-- Không có trạng thái PENDING 30 phút phức tạp: story/addendum được lưu
-  ngay sau khi engine chấp nhận, trước khi gửi; chỉ “đã kể” mới chờ sent.
+- Proposal được lưu ở trạng thái pending; chỉ kích hoạt và đánh dấu story
+  đã kể sau khi FakeSender báo gửi thành công. Khi gửi lỗi, proposal bị từ chối.
 - Schema một nguồn sự thật (models.py) cho cả SQLite và Postgres, thay
   vì hai bộ migration lệch nhau.
 - Validator phân biệt claim/smalltalk/handoff/opt-out thay vì chặn theo
@@ -352,11 +361,16 @@ Persona có chiều sâu, nhất quán, khơi gợi nhu cầu tự nhiên — kh
   tập hội thoại thật đã được phép sử dụng + xử lý riêng tư cho đánh giá
   sau (§19); hard-cap story/ngày/persona; semantic checker bằng LLM
   (hiện là kiểm tra có cấu trúc + similarity — không tuyên bố tuyệt đối).
+- **Giới hạn gửi lại:** FakeSender là mô phỏng. Hai retry cùng key được
+  chặn gửi đồng thời, nhưng chưa có khóa xuyên các lượt khác để ngăn dữ kiện
+  đổi giữa lúc kiểm tra và lúc gửi. Nếu tiến trình dừng hoặc sender báo lỗi
+  sau khi có thể đã gửi, kết quả cần được đối soát; không thể bảo đảm gửi
+  đúng một lần với sender ngoài nếu sender không hỗ trợ idempotency.
 - **Trước khi dùng thật cần:** (1) cấu hình key Luna + Neon qua env như §6;
   (2) chạy live eval với cap thấp và đối chiếu transcript với Luna;
   (3) lập tập human-gold (hiện vẫn trống, giống MAT_Intent) và blind A/B;
-  (4) rà soát product facts thật, thay toàn bộ fact mẫu; (5) bật review
-  cho mọi story hư cấu trước khi persona đó được dùng ngoài sandbox.
+  (4) rà soát product facts thật, thay toàn bộ fact mẫu; (5) xác định cách
+  kiểm soát chất lượng story hư cấu trước khi dùng ngoài sandbox.
 - Test synthetic + unit pass **không phải** bằng chứng hệ thống tự nhiên
   với khách thật.
 
@@ -369,7 +383,9 @@ Persona có chiều sâu, nhất quán, khơi gợi nhu cầu tự nhiên — kh
   (sentence-transformers) là tùy chọn qua `requirements-rag.txt`.
   OpenRouter embeddings hiện bị workspace guardrail chặn (HTTP 404).
 - Build: `.venv/bin/python scripts/build_rag_index.py [--provider
-  tfidf|st]` (script seed trước, thay toàn bộ index). Pipeline tự
+  tfidf|st] [--company data/dealers.json]` (script seed trước, thay toàn bộ
+  index). Mặc định script dùng cùng `DATABASE_URL` với ứng dụng; `--db`
+  cho phép chọn DB khác. Pipeline tự
   truy xuất top-3 chunk của đúng persona, dedupe với story path, đưa
   vào RAG_EVIDENCE, claim kind rag, validator kiểm tra như story.
 - Kiểm chứng live Luna: câu đường ngập -> sent, claim rag đúng ref_id,

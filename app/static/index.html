@@ -156,6 +156,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--fb-hover);color:
 .planner-item{background:var(--fb-hover);border-radius:8px;padding:10px 12px;margin-bottom:10px}
 .planner-item b{font-size:14px}
 .planner-meta{color:var(--fb-secondary);font-size:13px;line-height:1.5}
+.gate-result{color:var(--fb-secondary);font-size:12px;line-height:1.45;margin:5px 0 8px}
 .src-stated{background:#e6f2f0;color:#0b5e58}
 .src-inferred{background:#fff8e1;color:#7a5b00}
 .story-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -174,7 +175,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--fb-hover);color:
 </div></header>
 
 <main class="feed">
-  <p class="notice">⚠️ Persona dựa trên người dùng thật, nhưng đây là <b>mô phỏng trong sandbox</b> — người đang chat là AI, không phải chính người đó. Dữ kiện sản phẩm ở đây là <b>dữ liệu mẫu, không phải giá thực tế</b>. “Đã gửi qua FakeSender” khác với “Cần review”. Không có tích hợp Facebook/Meta ở giai đoạn này.</p>
+  <p class="notice">⚠️ Persona dựa trên người dùng thật, nhưng đây là <b>mô phỏng trong sandbox</b> — người đang chat là AI, không phải chính người đó. Dữ kiện sản phẩm ở đây là <b>dữ liệu mẫu, không phải giá thực tế</b>. FakeSender chỉ mô phỏng gửi; chưa tích hợp Facebook/Meta.</p>
   <p class="provider" id="providerBox">Đang kiểm tra provider…</p>
 
   <div class="layout">
@@ -311,10 +312,12 @@ async function checkProvider() {
     box.innerHTML = 'Không gọi được server: ' + esc(e.message) + '. Kiểm tra server có đang chạy ở cổng 8000 không.';
     return;
   }
-  if (h.provider === 'OpenRouterProvider' || h.openrouter_configured) {
-    box.innerHTML = `Provider hiện tại: <b>Luna qua OpenRouter</b> — model <code>${esc(h.openrouter_model)}</code>. Comment sẽ do Luna trả lời qua pipeline.`;
+  if (h.provider === 'OpenRouterProvider') {
+    box.innerHTML = `Provider hiện tại: <b>OpenRouter</b> — model <code>${esc(h.openrouter_model)}</code>. Comment sẽ do model này trả lời qua pipeline.`;
+  } else if (h.provider === 'FakeProvider') {
+    box.innerHTML = `Provider hiện tại: <b>Fake (mô phỏng offline)</b> — reply hiện tại là bản mô phỏng theo cùng contract tool. Xem hướng dẫn cuối trang để bật OpenRouter.`;
   } else {
-    box.innerHTML = `Provider hiện tại: <b>Fake (mô phỏng offline)</b> — chưa cấu hình OpenRouter key trong .env, nên reply hiện tại là bản mô phỏng theo cùng contract tool (không phải Luna thật). Xem hướng dẫn cuối trang để bật Luna.`;
+    box.innerHTML = 'Không có provider đang hoạt động. Kiểm tra cấu hình server trước khi gửi comment.';
   }
 }
 async function seedAndLoad() {
@@ -583,7 +586,8 @@ function renderComments(messages, reactions){
     </div>` : `<div class="comment-actions"><span class="comment-time">${esc(timeAgo(m.created_at))}</span>${isPersona ? `<span class="status ${statusCls}">${esc(statusLabel)}</span>` : ''}</div>`;
     // Pill neo theo bubble-wrap (mép dưới bubble), không neo theo
     // comment-body: body còn dài thêm khi gắn trace thì pill không trôi.
-    return `<div class="comment-row" data-message-id="${esc(m.id)}">${av}<div class="comment-body"><div class="bubble-wrap"><div class="bubble${isPersona && m.status !== 'sent' ? ' ' + m.status : ''}"><div class="bubble-name">${esc(name)}</div><div class="bubble-text">${esc(m.text)}</div></div>${pill}</div>${actions}</div></div>`;
+    const gate = !isPersona ? renderGate((m.trace || {}).gate, (m.trace || {}).intent_score) : '';
+    return `<div class="comment-row" data-message-id="${esc(m.id)}">${av}<div class="comment-body"><div class="bubble-wrap"><div class="bubble${isPersona && m.status !== 'sent' ? ' ' + m.status : ''}"><div class="bubble-name">${esc(name)}</div><div class="bubble-text">${esc(m.text)}</div></div>${pill}</div>${actions}${gate}</div></div>`;
   }).join('');
   // Gắn lại trace của lượt vừa gửi vào message persona mới nhất (nếu còn khớp).
   if (lastTrace) {
@@ -638,38 +642,55 @@ async function react(mid, emoji){
     }
   }
 }
-const GOAL_LABELS = {answer_question:'Trả lời câu hỏi', share_experience:'Chia sẻ trải nghiệm', clarify:'Hỏi làm rõ', explore_need:'Khám phá nhu cầu', empathize:'Đồng cảm', stop:'Dừng', handoff:'Chuyển giao / cần review'};
+const GOAL_LABELS = {answer_question:'Trả lời câu hỏi', share_experience:'Chia sẻ trải nghiệm', clarify:'Hỏi làm rõ', explore_need:'Khám phá nhu cầu', empathize:'Đồng cảm', stop:'Dừng', handoff:'Trả lời tự động'};
+function renderGate(gate, intentScore) {
+  const labels = {pipeline:'Đưa vào xử lý', bypass:'Bỏ qua – không trả lời', faq:'Trả lời theo FAQ'};
+  const action = gate && Object.prototype.hasOwnProperty.call(labels, gate.action)
+    ? labels[gate.action] : 'Không có dữ liệu';
+  const reason = gate && gate.reason ? gate.reason : 'Không có dữ liệu';
+  const validScore = intentScore && Number.isInteger(intentScore.score)
+    && intentScore.score >= 0 && intentScore.score <= 100;
+  const scoreLabel = intentScore && intentScore.method === 'rules_v1'
+    ? 'Điểm intent tham khảo theo luật' : 'Điểm intent tham khảo';
+  const score = validScore ? `${esc(intentScore.score)}/100` : 'Chưa có điểm';
+  const factors = validScore && Array.isArray(intentScore.factors)
+    ? intentScore.factors.filter(f => f && f.label != null).map(f => {
+        const points = Number.isFinite(f.points) ? ` (${f.points > 0 ? '+' : ''}${f.points})` : '';
+        return `<li>${esc(f.label)}${esc(points)}</li>`;
+      }).join('') : '';
+  return `<div class="gate-result"><b>Quyết định gate:</b> ${esc(action)}<br><b>Lý do:</b> ${esc(reason)}<br><b>${scoreLabel}:</b> ${score}${factors ? `<ul>${factors}</ul>` : ''}<br>Điểm chỉ để tham khảo, không phải xác suất và không điều khiển gate.</div>`;
+}
 function sourceLabel(s) {
   return s === 'stated' ? 'Khách nói rõ' : s === 'inferred_context' ? 'Suy luận từ context' : (s || '—');
 }
 function sourceCls(s) {
   return s === 'stated' ? 'src-stated' : s === 'inferred_context' ? 'src-inferred' : '';
 }
-// Cột Conversation Planner: đọc từ response.planner của lượt vừa gửi,
-// không phải từ JSON trace. Hiển thị định hướng tiếp theo + intent source.
+// Replay có thể chỉ lưu planner trong trace.
 function renderPlanner(d) {
   const box = document.getElementById('planner');
   if (!box) return;
-  const p = d.planner || {};
+  const planner = d.planner || (d.trace && d.trace.planner);
+  const p = planner || {};
   const rd = p.response_direction || {};
   const goal = GOAL_LABELS[p.goal] || (p.goal || '—');
-  let direction = 'Không hỏi thêm.';
+  let direction = planner ? 'Không hỏi thêm.' : 'Không có dữ liệu.';
   if (rd.ask_followup) {
     direction = 'Hỏi thêm 1 câu' + (rd.followup_purpose ? ': ' + rd.followup_purpose : '') + (rd.followup_key ? ' (key: ' + rd.followup_key + ')' : '') + '.';
   } else if (rd.answer_first) {
     direction = 'Trả lời câu hỏi trước, không hỏi thêm.';
   }
   const intents = (p.intents || []).map(it => {
-    const conf = (typeof it.confidence === 'number') ? ' · độ tin cậy ' + Math.round(it.confidence * 100) + '%' : '';
+    const conf = (typeof it.confidence === 'number' && Number.isFinite(it.confidence)) ? ' · Độ tin cậy nhận diện intent: ' + Math.round(it.confidence * 100) + '%' : '';
     return `<div class="planner-item"><b>${esc(it.type || '—')}</b> <span class="chip ${sourceCls(it.source)}">${esc(sourceLabel(it.source))}</span><div class="planner-meta">Chủ thể: ${esc(it.subject || '—')} · Liên quan: ${esc(it.relation || '—')}${conf}<br>${esc(it.normalized || '')}<br><span class="meta">Bằng chứng: ${esc(it.evidence || '—')}</span></div></div>`;
   }).join('') || '<p class="meta">Không có intent nào.</p>';
   const answered = (p.answered_question_keys || []).length ? p.answered_question_keys.map(esc).join(', ') : '—';
   const pending = (p.pending_questions || []).length ? p.pending_questions.map(q => esc(typeof q === 'string' ? q : (q.key || JSON.stringify(q)))).join(', ') : '—';
   const needs = (p.data_needs || []).length ? p.data_needs.map(esc).join(', ') : '—';
   const resolved = (p.resolved_reference && p.resolved_reference.resolved_to) ? esc(p.resolved_reference.resolved_to) : '—';
-  const reviewNote = d.status === 'review' ? `<div class="planner-item"><b>Lượt này chưa gửi (review/handoff).</b><div class="planner-meta">${esc((d.validator_errors || []).join('; ') || 'Model chọn hướng handoff hoặc validator chưa đạt — xem Trace kỹ thuật để biết lý do.')}</div></div>` : '';
+  const reviewNote = d.status === 'review' ? `<div class="planner-item"><b>Lượt cũ này chưa gửi.</b><div class="planner-meta">${esc((d.validator_errors || []).join('; ') || 'Lượt này đã được giữ lại theo luồng cũ.')}</div></div>` : (d.status === 'sent' && (d.validator_errors || []).length ? `<div class="planner-item"><b>Đã gửi tự động; kiểm tra ghi nhận:</b><div class="planner-meta">${esc(d.validator_errors.join('; '))}</div></div>` : '');
   const replayNote = (d.trace && d.trace.idempotent_replay === true) ? '<p class="meta">Đây là planner của reply cũ (trùng Idempotency-Key).</p>' : '';
-  box.innerHTML = `<p><b>Mục tiêu:</b> ${esc(goal)}</p><p><b>Định hướng tiếp theo:</b> ${esc(direction)}</p><p><b>Tham chiếu đã giải quyết:</b> ${resolved}</p><p><b>Dữ kiện cần:</b> ${needs}</p><p><b>Đã trả lời câu hỏi:</b> ${answered}</p><p><b>Câu hỏi đang chờ:</b> ${pending}</p><h3 style="font-size:15px;margin:16px 0 8px">Intents (kèm intent source)</h3>${intents}${reviewNote}${replayNote}`;
+  box.innerHTML = `${renderGate((d.trace || {}).gate, (d.trace || {}).intent_score)}<p><b>Mục tiêu:</b> ${esc(goal)}</p><p><b>Định hướng tiếp theo:</b> ${esc(direction)}</p><p><b>Tham chiếu đã giải quyết:</b> ${resolved}</p><p><b>Dữ kiện cần:</b> ${needs}</p><p><b>Đã trả lời câu hỏi:</b> ${answered}</p><p><b>Câu hỏi đang chờ:</b> ${pending}</p><h3 style="font-size:15px;margin:16px 0 8px">Intents (kèm intent source)</h3><p class="meta">Độ tin cậy nhận diện intent không phải điểm quyết định trả lời; giá trị có thể là mặc định.</p>${intents}${reviewNote}${replayNote}`;
 }
 async function sendTurn() {
   if (isSending) return;
@@ -723,17 +744,11 @@ async function sendTurn() {
   // y hệt, trông như persona "không nhớ lịch sử".
   document.getElementById('idem').value = '';
   await renderThread();
-  // Nếu lượt bị lỗi ở tầng pipeline (không có message persona mới) thì
-  // vẫn hiện text lỗi ngay dưới thread để người dùng thấy. Lượt bị gate
-  // bỏ qua cũng không có message mới nên hiện một dòng ghi chú xám
-  // (chỉ ở client, không lưu vào lịch sử) để khỏi tưởng là lỗi im lặng.
+  // Nếu lượt bị lỗi ở tầng pipeline, vẫn hiện text lỗi dưới thread.
   if (d.status === 'error') {
     appendErrorRow(replyText);
   } else {
     document.getElementById('comment').value = '';
-    if (d.status === 'skipped') {
-      appendSkipRow((d.flow && d.flow[0]) || 'Lượt này không cần trả lời (không gọi LLM).');
-    }
   }
   document.getElementById('comment').focus();
   loadPersonaDetail();
@@ -745,14 +760,6 @@ function appendErrorRow(msg){
   const row = document.createElement('div');
   row.className = 'comment-row';
   row.innerHTML = `<div class="avatar sm" style="background:var(--fb-red)" aria-hidden="true">!</div><div class="comment-body"><div class="bubble error"><div class="bubble-name">Lỗi</div><div class="bubble-text">${esc(msg)}</div></div></div>`;
-  chat.appendChild(row);
-}
-function appendSkipRow(msg){
-  // Ghi chú gate-bypass: giống error row nhưng xám, không phải lỗi.
-  const chat = document.getElementById('chat');
-  const row = document.createElement('div');
-  row.className = 'comment-row';
-  row.innerHTML = `<div class="avatar sm" style="background:var(--fb-secondary)" aria-hidden="true">–</div><div class="comment-body"><div class="bubble"><div class="bubble-name">Đã bỏ qua</div><div class="bubble-text">${esc(msg)}</div></div></div>`;
   chat.appendChild(row);
 }
 // Composer tự giãn theo nội dung (Shift+Enter xuống dòng vẫn thấy đủ).

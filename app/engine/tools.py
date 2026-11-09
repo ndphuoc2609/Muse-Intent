@@ -92,7 +92,7 @@ class ToolExecutor:
         self.correction_customer_fact_ids: set[str] = set()
         self.pending_tag_assignment_ids: list[str] = []
 
-    def activate_pending(self) -> None:
+    def activate_pending(self, *, commit: bool = True) -> None:
         """Chuyển mọi proposal của lượt này thành canon (chỉ gọi khi sent)."""
         from ..models import CustomerFact as _CF
         for fid in self.pending_persona_fact_ids:
@@ -147,7 +147,8 @@ class ToolExecutor:
                         or (o.relation or "") == (row.relation or "")):
                     o.status = "corrected"
             row.status = "current"
-        self.s.commit()
+        if commit:
+            self.s.commit()
 
     def reject_pending(self) -> None:
         """Candidate của lượt không deliver thành công -> rejected,
