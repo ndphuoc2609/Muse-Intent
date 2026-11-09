@@ -13,4 +13,4 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openai/gpt-6-luna}
     ports:
-      - "8000:8000"
+      - "8012:8000"

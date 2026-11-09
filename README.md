@@ -186,7 +186,7 @@ docker compose up --build   # app ở http://127.0.0.1:8000/
 Chạy với Neon hiện tại (không dựng Postgres local):
 
 ```bash
-docker compose -f docker-compose.neon.yml up --build
+docker compose -f docker-compose.neon.yml up --build   # app ở http://127.0.0.1:8012/
 ```
 
 Yêu cầu `.env` có `DATABASE_URL` (Neon) và `OPENROUTER_API_KEY`.
